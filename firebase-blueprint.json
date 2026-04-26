@@ -1,0 +1,169 @@
+{
+  "entities": {
+    "Ingredient": {
+      "title": "Ingredient",
+      "description": "Raw material used in recipes",
+      "type": "object",
+      "properties": {
+        "name": { "type": "string" },
+        "unit": { "type": "string", "enum": ["kg", "g", "l", "ml", "unit"] },
+        "stock": { "type": "number" },
+        "reorderPoint": { "type": "number" },
+        "costPerUnit": { "type": "number" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["name", "unit", "stock", "costPerUnit"]
+    },
+    "Recipe": {
+      "title": "Recipe",
+      "description": "Formula for a mixture",
+      "type": "object",
+      "properties": {
+        "name": { "type": "string" },
+        "baseType": { "type": "string", "enum": ["agua", "leche"] },
+        "ingredients": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "ingredientId": { "type": "string" },
+              "quantity": { "type": "number" }
+            }
+          }
+        },
+        "yieldLitros": { "type": "number" },
+        "isActive": { "type": "boolean" }
+      },
+      "required": ["name", "baseType", "ingredients", "yieldLitros"]
+    },
+    "Production": {
+      "title": "Production Batch",
+      "description": "A specific production run",
+      "type": "object",
+      "properties": {
+        "date": { "type": "string", "format": "date-time" },
+        "recipeId": { "type": "string" },
+        "recipeName": { "type": "string" },
+        "litersProduced": { "type": "number" },
+        "responsible": { "type": "string" },
+        "costTotal": { "type": "number" },
+        "mermas": { "type": "number" },
+        "finishedProducts": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "productId": { "type": "string" },
+              "quantity": { "type": "number" }
+            }
+          }
+        }
+      },
+      "required": ["date", "recipeId", "litersProduced", "responsible"]
+    },
+    "Product": {
+      "title": "Finished Product",
+      "description": "End product for sale (bolis/helados)",
+      "type": "object",
+      "properties": {
+        "flavor": { "type": "string" },
+        "stock": { "type": "number" },
+        "priceWholesale": { "type": "number" },
+        "priceRetail": { "type": "number" },
+        "category": { "type": "string" }
+      },
+      "required": ["flavor", "stock", "priceWholesale", "priceRetail"]
+    },
+    "Sale": {
+      "title": "Sale Record",
+      "description": "Transaction record",
+      "type": "object",
+      "properties": {
+        "date": { "type": "string", "format": "date-time" },
+        "customerId": { "type": "string" },
+        "customerName": { "type": "string" },
+        "items": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "productId": { "type": "string" },
+              "flavor": { "type": "string" },
+              "quantity": { "type": "number" },
+              "price": { "type": "number" }
+            }
+          }
+        },
+        "total": { "type": "number" },
+        "paymentMethod": { "type": "string" },
+        "status": { "type": "string", "enum": ["paid", "pending"] },
+        "sellerId": { "type": "string" }
+      },
+      "required": ["date", "items", "total", "status"]
+    },
+    "Customer": {
+      "title": "Customer",
+      "description": "Buyer information",
+      "type": "object",
+      "properties": {
+        "name": { "type": "string" },
+        "phone": { "type": "string" },
+        "email": { "type": "string" },
+        "type": { "type": "string", "enum": ["wholesale", "retail"] },
+        "balance": { "type": "number" }
+      },
+      "required": ["name", "type"]
+    },
+    "Expense": {
+      "title": "Expense",
+      "description": "Business costs",
+      "type": "object",
+      "properties": {
+        "date": { "type": "string", "format": "date-time" },
+        "description": { "type": "string" },
+        "amount": { "type": "number" },
+        "type": { "type": "string", "enum": ["fixed", "variable"] }
+      },
+      "required": ["date", "description", "amount", "type"]
+    }
+  },
+  "firestore": {
+    "/ingredients/{ingredientId}": {
+      "schema": "Ingredient",
+      "description": "Ingredients inventory"
+    },
+    "/recipes/{recipeId}": {
+      "schema": "Recipe",
+      "description": "Available recipes"
+    },
+    "/productions/{productionId}": {
+      "schema": "Production",
+      "description": "Production history batches"
+    },
+    "/products/{productId}": {
+      "schema": "Product",
+      "description": "Finished goods inventory"
+    },
+    "/sales/{saleId}": {
+      "schema": "Sale",
+      "description": "Sales history"
+    },
+    "/customers/{customerId}": {
+      "schema": "Customer",
+      "description": "Client database"
+    },
+    "/expenses/{expenseId}": {
+      "schema": "Expense",
+      "description": "Expense history"
+    },
+    "/settings/finance": {
+      "schema": {
+        "type": "object",
+        "properties": {
+          "monthlyGoal": { "type": "number" }
+        }
+      },
+      "description": "Financial goals and config"
+    }
+  }
+}

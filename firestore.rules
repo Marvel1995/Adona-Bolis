@@ -1,0 +1,126 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // -------------------------------------------------------------------------
+    // GLOBAL HELPERS
+    // -------------------------------------------------------------------------
+    function isSignedIn() { return request.auth != null; }
+    function isVerified() { return isSignedIn() && request.auth.token.email_verified == true; }
+    function incoming() { return request.resource.data; }
+    function existing() { return resource.data; }
+    function isValidId(id) { return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$'); }
+    
+    // Role determination (Lookup from /users collection)
+    function getUserData() { return get(/databases/$(database)/documents/users/$(request.auth.uid)).data; }
+    function hasRole(role) { return isVerified() && getUserData().role == role; }
+    function isAdmin() { return hasRole('admin') || request.auth.token.email == 'hernandezalexis997@gmail.com'; }
+    function isProduction() { return isAdmin() || hasRole('production'); }
+    function isSales() { return isAdmin() || hasRole('sales'); }
+
+    // -------------------------------------------------------------------------
+    // VALIDATION HELPERS
+    // -------------------------------------------------------------------------
+    function isValidIngredient(data) {
+      return data.name is string && data.name.size() > 0 && data.name.size() < 100
+          && data.unit in ['kg', 'g', 'l', 'ml', 'unit']
+          && data.stock is number
+          && data.costPerUnit is number && data.costPerUnit >= 0;
+    }
+
+    function isValidRecipe(data) {
+      return data.name is string && data.name.size() > 0
+          && data.baseType in ['agua', 'leche']
+          && data.ingredients is list
+          && data.yieldLitros is number && data.yieldLitros > 0;
+    }
+
+    function isValidProduct(data) {
+      return data.flavor is string && data.flavor.size() > 0
+          && data.stock is number
+          && data.priceWholesale is number && data.priceWholesale >= 0
+          && data.priceRetail is number && data.priceRetail >= 0;
+    }
+
+    function isValidSale(data) {
+      return data.total is number && data.total >= 0
+          && data.status in ['paid', 'pending']
+          && data.items is list;
+    }
+
+    // -------------------------------------------------------------------------
+    // RULES
+    // -------------------------------------------------------------------------
+    
+    // Default Deny
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // Users (Profiles)
+    match /users/{userId} {
+      allow get: if isSignedIn() && (request.auth.uid == userId || isAdmin());
+      allow list: if isAdmin();
+      // Allow self-creation of profile with 'pending' or default role if needed, 
+      // but here we restrict to Admin or initial bootstrap
+      allow write: if isAdmin() || (request.auth.uid == userId && !incoming().diff(existing()).affectedKeys().hasAny(['role']));
+    }
+
+    // Ingredients
+    match /ingredients/{id} {
+      allow read: if isProduction() || isSales();
+      allow create: if isProduction() && isValidIngredient(incoming());
+      allow update: if isProduction() && isValidIngredient(incoming());
+      allow delete: if isAdmin();
+    }
+
+    // Recipes
+    match /recipes/{id} {
+      allow read: if isProduction();
+      allow create: if isProduction() && isValidRecipe(incoming());
+      allow update: if isProduction() && isValidRecipe(incoming());
+      allow delete: if isAdmin();
+    }
+
+    // Productions
+    match /productions/{id} {
+      allow read: if isProduction();
+      allow create: if isProduction();
+      allow update: if isProduction();
+      allow delete: if isAdmin();
+    }
+
+    // Products
+    match /products/{id} {
+      allow read: if isSignedIn();
+      allow write: if isProduction() || isSales(); // Sales updates stock, Production creates/updates flavors
+    }
+
+    // Customers
+    match /customers/{id} {
+      allow read: if isSales();
+      allow write: if isSales();
+    }
+
+    // Sales
+    match /sales/{id} {
+      allow read: if isSales() || isProduction();
+      allow create: if isSales() && isValidSale(incoming());
+      allow update: if isSales() && isValidSale(incoming()) && (
+        incoming().diff(existing()).affectedKeys().hasOnly(['status']) || isAdmin()
+      );
+      allow delete: if isAdmin();
+    }
+
+    // Expenses
+    match /expenses/{id} {
+      allow read: if isAdmin();
+      allow write: if isAdmin();
+    }
+
+    // Settings
+    match /settings/{id} {
+      allow read: if isSignedIn();
+      allow write: if isAdmin();
+    }
+  }
+}
