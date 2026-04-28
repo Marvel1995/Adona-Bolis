@@ -162,35 +162,132 @@ export default function SalesManager() {
 
   const generatePDF = (sale: any) => {
     const doc = new jsPDF();
-    doc.setFontSize(22);
-    doc.text('BoliControl Pro - Nota de Venta', 20, 20);
-    doc.setFontSize(12);
-    doc.text(`Cliente: ${sale.customerName}`, 20, 35);
-    doc.text(`Fecha: ${formatDate(sale.date)}`, 20, 42);
-    doc.text(`Estado: ${sale.status.toUpperCase()}`, 20, 49);
+    const primaryColor = [37, 99, 235]; // Blue 600
+    const secondaryColor = [100, 116, 139]; // Slate 500
 
+    // Header Background
+    doc.setFillColor(30, 41, 59); // Slate 900
+    doc.rect(0, 0, 210, 40, 'F');
+
+    // Business Name
+    doc.setTextColor(255, 255, 255);
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(22);
+    doc.text('FÁBRICA DE BOLIS ADONAÍ', 20, 20);
+
+    // Address & Info
+    doc.setFontSize(9);
+    doc.setFont('helvetica', 'normal');
+    doc.text('C. Soplete 2739, Álamo Industrial', 20, 28);
+    doc.text('Guadalajara, Jalisco | Tel: (33) XXXX-XXXX', 20, 33);
+
+    // Receipt Title & Meta
+    doc.setTextColor(30, 41, 59);
+    doc.setFontSize(18);
+    doc.setFont('helvetica', 'bold');
+    doc.text('NOTA DE REMISIÓN', 20, 55);
+
+    doc.setFontSize(9);
+    doc.setTextColor(secondaryColor[0], secondaryColor[1], secondaryColor[2]);
+    doc.text(`Folio: #${sale.id.slice(-6).toUpperCase()}`, 150, 55);
+    doc.text(`Fecha: ${formatDate(sale.date)}`, 150, 60);
+
+    // Client Info Box
+    doc.setDrawColor(226, 232, 240); // Slate 200
+    doc.setFillColor(248, 250, 252); // Slate 50
+    doc.roundedRect(20, 65, 170, 25, 3, 3, 'FD');
+
+    doc.setTextColor(30, 41, 59);
+    doc.setFont('helvetica', 'bold');
+    doc.text('CLIENTE:', 25, 75);
+    doc.setFont('helvetica', 'normal');
+    const customerLabel = sale.customerName?.toUpperCase() || 'PÚBLICO GENERAL';
+    doc.text(customerLabel, 45, 75);
+
+    doc.setFont('helvetica', 'bold');
+    doc.text('TELÉFONO:', 25, 82);
+    doc.setFont('helvetica', 'normal');
+    doc.text(sale.customerPhone || 'SIN REGISTRO', 48, 82);
+
+    doc.setFont('helvetica', 'bold');
+    doc.text('MÉTODO:', 120, 75);
+    doc.setFont('helvetica', 'normal');
+    doc.text((sale.paymentMethod || 'efectivo').toUpperCase(), 140, 75);
+
+    doc.setFont('helvetica', 'bold');
+    doc.text('ESTADO:', 120, 82);
+    doc.setFont('helvetica', 'normal');
+    doc.text((sale.status || 'pagado').toUpperCase(), 140, 82);
+
+    // Table
     autoTable(doc, {
-      startY: 60,
-      head: [['Producto', 'Cant.', 'Precio Unit.', 'Subtotal']],
-      body: sale.items.map((i: any) => [i.flavor, i.quantity, formatCurrency(i.price), formatCurrency(i.price * i.quantity)]),
+      startY: 100,
+      head: [['PRODUCTO', 'CANTIDAD', 'PRECIO UNIT.', 'SUBTOTAL']],
+      body: sale.items.map((i: any) => [
+        i.flavor.toUpperCase(), 
+        i.quantity, 
+        formatCurrency(i.price), 
+        formatCurrency(i.price * i.quantity)
+      ]),
+      headStyles: {
+        fillColor: [30, 41, 59],
+        textColor: 255,
+        fontSize: 10,
+        fontStyle: 'bold',
+        halign: 'center'
+      },
+      bodyStyles: {
+        fontSize: 9,
+        textColor: [30, 41, 59],
+        halign: 'center'
+      },
+      columnStyles: {
+        0: { halign: 'left', fontStyle: 'bold' },
+        3: { halign: 'right', fontStyle: 'bold' }
+      },
+      alternateRowStyles: {
+        fillColor: [248, 250, 252]
+      }
     });
 
-    let finalY = (doc as any).lastAutoTable.finalY + 5;
+    let finalY = (doc as any).lastAutoTable.finalY + 10;
+
+    // Totals Section
+    doc.setDrawColor(226, 232, 240);
+    doc.line(130, finalY, 190, finalY);
+    finalY += 7;
+
+    doc.setFontSize(10);
+    doc.setTextColor(secondaryColor[0], secondaryColor[1], secondaryColor[2]);
+    doc.text('SUBTOTAL:', 130, finalY);
+    doc.setTextColor(30, 41, 59);
+    doc.text(formatCurrency(sale.subtotal), 190, finalY, { align: 'right' });
     
+    finalY += 7;
     if (sale.shippingCost > 0) {
-      doc.setFontSize(10);
-      doc.text(`Subtotal: ${formatCurrency(sale.subtotal)}`, 140, finalY);
+      doc.setTextColor(secondaryColor[0], secondaryColor[1], secondaryColor[2]);
+      doc.text(`ENVÍO:`, 130, finalY);
+      doc.setTextColor(30, 41, 59);
+      doc.text(formatCurrency(sale.shippingCost), 190, finalY, { align: 'right' });
       finalY += 7;
-      doc.text(`Envío (${sale.deliveryKm} km): ${formatCurrency(sale.shippingCost)}`, 140, finalY);
-      finalY += 10;
-    } else {
-      finalY += 5;
     }
 
-    doc.setFontSize(16);
-    doc.text(`Total: ${formatCurrency(sale.total)}`, 140, finalY);
+    doc.setFillColor(30, 41, 59);
+    doc.rect(130, finalY, 60, 10, 'F');
+    doc.setTextColor(255, 255, 255);
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(12);
+    doc.text('TOTAL:', 135, finalY + 7);
+    doc.text(formatCurrency(sale.total), 188, finalY + 7, { align: 'right' });
 
-    doc.save(`Venta_${sale.id.slice(-5)}.pdf`);
+    // Footer
+    doc.setTextColor(secondaryColor[0], secondaryColor[1], secondaryColor[2]);
+    doc.setFontSize(8);
+    doc.setFont('helvetica', 'italic');
+    doc.text('¡Gracias por su preferencia!', 105, 280, { align: 'center' });
+    doc.text('Este documento es un comprobante de venta interna.', 105, 285, { align: 'center' });
+
+    doc.save(`Nota_Venta_${sale.id.slice(-5).toUpperCase()}.pdf`);
   };
 
   const handleDeleteSale = async (sale: any) => {
