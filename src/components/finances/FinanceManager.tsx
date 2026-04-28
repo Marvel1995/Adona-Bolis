@@ -118,15 +118,15 @@ export default function FinanceManager() {
     <div className="space-y-8">
       <div className="flex items-center justify-between">
         <div>
-          <h2 className="text-3xl font-bold text-gray-900">Egresos & Gastos</h2>
-          <p className="text-gray-500">Gestión de costos fijos y variables.</p>
+          <h2 className="text-3xl font-bold text-gray-900">Control de Egresos</h2>
+          <p className="text-gray-500">Gestión de costos y gastos fijos/variables.</p>
         </div>
         <button 
           onClick={() => setIsModalOpen(true)}
           className="bg-red-600 hover:bg-red-700 text-white px-6 py-3 rounded-xl font-semibold flex items-center gap-2"
         >
           <Plus className="w-5 h-5" />
-          Registrar Gasto
+          Registrar Egreso
         </button>
       </div>
 
@@ -134,7 +134,7 @@ export default function FinanceManager() {
         <div className="lg:col-span-2 space-y-6">
            <div className="bg-white rounded-3xl border border-gray-100 shadow-sm overflow-hidden">
              <div className="px-6 py-4 border-b border-gray-100 flex justify-between items-center">
-               <h3 className="font-bold text-gray-900">Historial de Gastos</h3>
+               <h3 className="font-bold text-gray-900">Historial de Egresos</h3>
                <span className="text-sm font-bold text-red-500">Total: {formatCurrency(totalExpenses)}</span>
              </div>
              <div className="overflow-x-auto">
@@ -187,7 +187,7 @@ export default function FinanceManager() {
                 <span className="text-green-600 font-bold">{formatCurrency(totalSales)}</span>
               </div>
               <div className="flex justify-between items-center">
-                <span className="text-gray-500">Gastos Registrados</span>
+                <span className="text-gray-500">Egresos Registrados</span>
                 <span className="text-red-500 font-bold">-{formatCurrency(totalExpenses)}</span>
               </div>
               <div className="pt-4 border-t border-gray-100 flex justify-between items-end">
@@ -235,7 +235,7 @@ export default function FinanceManager() {
               <Input label="Monto total ($)" type="number" value={formData.amount} onChange={(v:any) => setFormData({...formData, amount: v})} required />
               
               <div className="space-y-2">
-                <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest pl-1">Tipo de Gasto</label>
+                <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest pl-1">Tipo de Movimiento</label>
                 <div className="flex p-1 bg-slate-100 rounded-2xl">
                   {['fixed', 'variable'].map(t => (
                     <button key={t} type="button" onClick={() => setFormData({...formData, type: t as any})} className={cn(
@@ -267,7 +267,7 @@ export default function FinanceManager() {
                 </div>
               )}
 
-              <Input label="Fecha del Gasto" type="date" value={formData.date} onChange={(v:any) => setFormData({...formData, date: v})} />
+              <Input label="Fecha del Movimiento" type="date" value={formData.date} onChange={(v:any) => setFormData({...formData, date: v})} />
               
               <button className="w-full bg-rose-600 text-white font-black py-5 rounded-3xl shadow-xl shadow-rose-200 mt-4 active:scale-95 transition-all uppercase tracking-widest">
                 {isEditMode ? 'Actualizar Movimiento' : 'Registrar Movimiento'}

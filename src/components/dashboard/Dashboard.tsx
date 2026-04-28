@@ -344,7 +344,7 @@ export default function Dashboard() {
           </div>
         </div>
         <StatCard title="Ventas Totales" value={formatCurrency(stats.income)} icon={TrendingUp} color="green" />
-        <StatCard title="Gastos Totales" value={formatCurrency(stats.expenses)} icon={TrendingDown} color="red" />
+        <StatCard title="Egresos Totales" value={formatCurrency(stats.expenses)} icon={TrendingDown} color="red" />
         <div className="bg-white p-6 rounded-3xl shadow-sm border border-slate-200">
           <div className="flex justify-between mb-4">
             <div className="p-3 rounded-2xl border bg-rose-50 text-rose-600 border-rose-100"><AlertTriangle className="w-6 h-6" /></div>
@@ -599,7 +599,7 @@ export default function Dashboard() {
                                   <span className="text-[10px] font-bold text-emerald-300">+{formatCurrency(data.ingresos)}</span>
                                 </div>
                                 <div>
-                                  <span className="text-[8px] font-black text-slate-500 uppercase block">Gastos</span>
+                                  <span className="text-[8px] font-black text-slate-500 uppercase block">Egresos</span>
                                   <span className="text-[10px] font-bold text-rose-300">-{formatCurrency(data.gastos)}</span>
                                 </div>
                               </div>
@@ -657,7 +657,7 @@ export default function Dashboard() {
                <motion.div initial={{ width: 0 }} animate={{ width: `${stats.breakEvenPercent}%` }} className="absolute inset-y-0 bg-emerald-500 rounded-full" />
             </div>
             <p className="text-[9px] text-slate-500 font-bold uppercase leading-relaxed">
-              Basado en gastos del mes anterior: <span className="text-slate-300">{formatCurrency(stats.breakEvenTarget)}</span>
+              Basado en egresos del mes anterior: <span className="text-slate-300">{formatCurrency(stats.breakEvenTarget)}</span>
             </p>
           </div>
           

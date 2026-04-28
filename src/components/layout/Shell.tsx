@@ -24,7 +24,7 @@ const navItems: NavItem[] = [
   { id: 'sales', label: 'Ventas', icon: ShoppingCart },
   { id: 'orders', label: 'Pedidos', icon: Truck },
   { id: 'customers', label: 'Clientes', icon: Users },
-  { id: 'finances', label: 'Gastos Fijos', icon: DollarSign },
+  { id: 'finances', label: 'Egresos', icon: DollarSign },
   { id: 'settings', label: 'Configuración', icon: SettingsIcon },
 ];
 
