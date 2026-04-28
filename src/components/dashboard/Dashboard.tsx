@@ -2,11 +2,12 @@ import React, { useState, useEffect } from 'react';
 import { 
   TrendingUp, TrendingDown, DollarSign, Package, 
   AlertTriangle, CheckCircle2, ShoppingBag, ArrowUpRight,
-  Clock, Calendar, User, MapPin
+  Clock, Calendar, User, MapPin, X, PieChart as PieChartIcon
 } from 'lucide-react';
 import { 
   BarChart, Bar, XAxis, YAxis, CartesianGrid, 
-  Tooltip, ResponsiveContainer, AreaChart, Area 
+  Tooltip, ResponsiveContainer, AreaChart, Area,
+  PieChart, Pie, Cell, Legend
 } from 'recharts';
 import { collection, getDocs, getDoc, doc, onSnapshot } from 'firebase/firestore';
 import { db } from '../../lib/firebase';
@@ -22,6 +23,9 @@ export default function Dashboard() {
     income: 0,
     expenses: 0,
     goalPercent: 0,
+    breakEvenTarget: 0,
+    breakEvenPercent: 0,
+    monthIncome: 0,
     reorderCount: 0,
     goal: 100000,
     mlPerBolis: 200,
@@ -43,6 +47,9 @@ export default function Dashboard() {
   const [products, setProducts] = useState<any[]>([]);
   const [recipePerformance, setRecipePerformance] = useState<any[]>([]);
   const [timeRange, setTimeRange] = useState<'7d' | '1m' | '3m' | '1y'>('7d');
+  const [selectedRecipe, setSelectedRecipe] = useState<any | null>(null);
+
+  const COLORS = ['#2563eb', '#10b981', '#f59e0b', '#f43f5e', '#8b5cf6', '#06b6d4'];
 
   useEffect(() => {
     // Basic data fetching
@@ -97,7 +104,9 @@ export default function Dashboard() {
       setStats(prev => ({
         ...prev,
         income: totalIncome,
-        goalPercent: Math.min(Math.round((monthSales / prev.goal) * 100), 100)
+        monthIncome: monthSales,
+        goalPercent: Math.min(Math.round((monthSales / prev.goal) * 100), 100),
+        breakEvenPercent: prev.breakEvenTarget > 0 ? Math.min(Math.round((monthSales / prev.breakEvenTarget) * 100), 100) : 0
       }));
 
       // Update chart with cumulative balance
@@ -178,7 +187,27 @@ export default function Dashboard() {
 
     const unsubExp = onSnapshot(collection(db, 'expenses'), (expSnap) => {
       const totalExp = expSnap.docs.reduce((sum, d) => sum + (d.data().amount || 0), 0);
-      setStats(prev => ({ ...prev, expenses: totalExp }));
+      
+      // Calculate break-even target: expenses from LAST month
+      const now = new Date();
+      const firstOfLastMonth = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+      const lastOfLastMonth = new Date(now.getFullYear(), now.getMonth(), 0);
+      
+      const lastMonthTotal = expSnap.docs.reduce((sum, doc) => {
+        const d = doc.data();
+        const date = new Date(d.date || '');
+        if (date >= firstOfLastMonth && date <= lastOfLastMonth) {
+          return sum + (d.amount || 0);
+        }
+        return sum;
+      }, 0);
+
+      setStats(prev => ({ 
+        ...prev, 
+        expenses: totalExp, 
+        breakEvenTarget: lastMonthTotal,
+        breakEvenPercent: lastMonthTotal > 0 ? Math.min(Math.round((prev.monthIncome / lastMonthTotal) * 100), 100) : 0
+      }));
     });
 
     const unsubIng = onSnapshot(collection(db, 'ingredients'), (ingSnap) => {
@@ -227,6 +256,18 @@ export default function Dashboard() {
       const profitRetail = priceRetail - unitCost;
       const profitWholesale = priceWholesale - unitCost;
 
+      // Breakdown data for the pie chart
+      const breakdown = recipe.ingredients.map((ri: any) => {
+        const ing = ingredients.find(i => i.id === ri.ingredientId);
+        const cost = ing ? ing.costPerUnit * ri.quantity : 0;
+        const unitCostPart = (cost / (recipe.yieldLitros || 1) / 1000) * stats.mlPerBolis;
+        return {
+          name: ing?.name || 'Otro',
+          value: unitCostPart,
+          originalIng: ing
+        };
+      }).filter((item: any) => item.value > 0);
+
       return {
         id: recipe.id,
         name: recipe.name,
@@ -234,7 +275,8 @@ export default function Dashboard() {
         profitRetail,
         profitWholesale,
         marginRetail: (profitRetail / (priceRetail || 1)) * 100,
-        marginWholesale: (profitWholesale / (priceWholesale || 1)) * 100
+        marginWholesale: (profitWholesale / (priceWholesale || 1)) * 100,
+        breakdown
       };
     });
 
@@ -328,16 +370,25 @@ export default function Dashboard() {
 
         <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6">
           {recipePerformance.map((perf) => (
-            <div key={perf.id} className="bg-white rounded-[2rem] border border-slate-100 shadow-sm overflow-hidden flex flex-col">
-              <div className="p-5 border-b border-slate-50 bg-slate-50/50 flex justify-between items-center">
-                <span className="font-black text-slate-900 uppercase tracking-tight">{perf.name}</span>
+            <button 
+              key={perf.id} 
+              onClick={() => setSelectedRecipe(perf)}
+              className="group bg-white rounded-[2rem] border border-slate-100 shadow-sm overflow-hidden flex flex-col text-left transition-all hover:shadow-xl hover:border-blue-200 hover:-translate-y-1 active:scale-95"
+            >
+              <div className="p-5 border-b border-slate-50 bg-slate-50/50 flex justify-between items-center transition-colors group-hover:bg-blue-50/50">
+                <div className="flex items-center gap-2">
+                   <div className="p-2 bg-blue-100 rounded-lg text-blue-600 hidden group-hover:block animate-in fade-in zoom-in duration-300">
+                     <PieChartIcon className="w-4 h-4" />
+                   </div>
+                   <span className="font-black text-slate-900 uppercase tracking-tight">{perf.name}</span>
+                </div>
                 <div className="flex flex-col items-end">
                   <span className="text-[10px] font-black text-slate-400 uppercase leading-none mb-1">Costo Unit.</span>
                   <span className="text-lg font-black text-blue-600 leading-none">{formatCurrency(perf.unitCost)}</span>
                 </div>
               </div>
               
-              <div className="p-5 grid grid-cols-2 gap-4 bg-white">
+              <div className="p-5 grid grid-cols-2 gap-4 bg-white flex-1">
                 <div className="space-y-1">
                   <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest leading-none">Gan. Menudeo</p>
                   <p className="text-xl font-black text-emerald-600 leading-none">{formatCurrency(perf.profitRetail)}</p>
@@ -356,10 +407,125 @@ export default function Dashboard() {
                   </div>
                 </div>
               </div>
-            </div>
+            </button>
           ))}
         </div>
       </div>
+
+      {/* Modal Desglose de Costo */}
+      {selectedRecipe && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm animate-in fade-in duration-300">
+          <motion.div 
+            initial={{ opacity: 0, scale: 0.9, y: 20 }}
+            animate={{ opacity: 1, scale: 1, y: 0 }}
+            className="bg-white rounded-[2.5rem] w-full max-w-2xl max-h-[90vh] overflow-hidden shadow-2xl flex flex-col"
+          >
+            <div className="p-8 border-b border-slate-100 flex items-center justify-between bg-slate-50/50 shrink-0">
+              <div>
+                <span className="text-[10px] font-black text-blue-600 uppercase tracking-widest bg-blue-50 px-3 py-1 rounded-full mb-2 inline-block">Análisis Proyección</span>
+                <h3 className="text-2xl font-black text-slate-900 uppercase leading-none">Análisis: {selectedRecipe.name}</h3>
+              </div>
+              <button 
+                onClick={() => setSelectedRecipe(null)}
+                className="p-3 bg-white border border-slate-200 rounded-2xl text-slate-400 hover:text-slate-900 transition-all hover:shadow-md"
+              >
+                <X className="w-6 h-6" />
+              </button>
+            </div>
+
+            <div className="flex-1 overflow-y-auto p-8 custom-scrollbar">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-12 mb-8">
+                <div className="flex flex-col justify-center">
+                  <div className="h-[250px] w-full">
+                    <ResponsiveContainer width="100%" height="100%">
+                      <PieChart>
+                        <Pie
+                          data={selectedRecipe.breakdown}
+                          cx="50%"
+                          cy="50%"
+                          innerRadius={60}
+                          outerRadius={80}
+                          paddingAngle={5}
+                          dataKey="value"
+                          animationDuration={1500}
+                        >
+                          {selectedRecipe.breakdown.map((entry: any, index: number) => (
+                            <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
+                          ))}
+                        </Pie>
+                        <Tooltip 
+                          content={({ active, payload }) => {
+                            if (active && payload && payload.length) {
+                              return (
+                                <div className="bg-slate-900 text-white p-3 rounded-xl border border-slate-800 shadow-xl text-xs font-bold leading-tight text-center">
+                                  <p className="text-blue-400 mb-1 uppercase tracking-tight">{payload[0].name}</p>
+                                  <p className="text-lg">{formatCurrency(payload[0].value as number)}</p>
+                                </div>
+                              );
+                            }
+                            return null;
+                          }}
+                        />
+                      </PieChart>
+                    </ResponsiveContainer>
+                  </div>
+                  <div className="mt-4 flex flex-wrap justify-center gap-3">
+                    {selectedRecipe.breakdown.map((item: any, index: number) => (
+                      <div key={item.name} className="flex items-center gap-1.5">
+                        <div className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: COLORS[index % COLORS.length] }}></div>
+                        <span className="text-[10px] font-black text-slate-500 uppercase">{item.name}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+                <div className="space-y-6">
+                  <div>
+                    <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-4">Estructura de Costo Unitario</p>
+                    <div className="space-y-3">
+                      {selectedRecipe.breakdown.map((item: any, index: number) => (
+                        <div key={item.name} className="flex items-center justify-between p-3 bg-slate-50 rounded-xl border border-slate-100/50">
+                          <div className="flex items-center gap-3">
+                            <div className="w-8 h-8 rounded-lg flex items-center justify-center font-bold text-xs" style={{ backgroundColor: `${COLORS[index % COLORS.length]}15`, color: COLORS[index % COLORS.length] }}>
+                              {Math.round((item.value / selectedRecipe.unitCost) * 100)}%
+                            </div>
+                            <div>
+                              <p className="text-xs font-black text-slate-800 uppercase leading-none mb-1">{item.name}</p>
+                              <p className="text-[9px] font-bold text-slate-400 uppercase">Gasto Insumo</p>
+                            </div>
+                          </div>
+                          <span className="text-sm font-black text-slate-700">{formatCurrency(item.value)}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+
+                  <div className="pt-6 border-t border-slate-100">
+                    <div className="flex justify-between items-end">
+                      <div>
+                        <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Costo Total Producción</p>
+                        <p className="text-3xl font-black text-blue-600 leading-none">{formatCurrency(selectedRecipe.unitCost)}</p>
+                      </div>
+                      <div className="bg-emerald-50 text-emerald-600 px-3 py-1.5 rounded-xl border border-emerald-100 flex items-center gap-2">
+                        <TrendingUp className="w-4 h-4" />
+                        <span className="text-xs font-black uppercase">Rentable</span>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <div className="p-6 bg-slate-50 rounded-3xl border border-slate-100 text-center">
+                <p className="text-[10px] font-bold text-slate-500 uppercase tracking-[0.2em]">Cálculos de proyección para {stats.mlPerBolis}ml estándar</p>
+              </div>
+            </div>
+            
+            <div className="p-4 bg-slate-900 text-white text-center shrink-0">
+              <p className="text-[9px] font-black text-slate-500 uppercase tracking-widest">Sistema BoliControl Pro © v2.0</p>
+            </div>
+          </motion.div>
+        </div>
+      )}
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
         <div className="lg:col-span-2 bg-white p-8 rounded-3xl border border-slate-200 min-h-[450px] shadow-sm">
@@ -461,17 +627,42 @@ export default function Dashboard() {
           </div>
         </div>
 
-        <div className="bg-slate-900 p-8 rounded-[2.5rem] text-white flex flex-col justify-between">
+        <div className="bg-slate-900 p-8 rounded-[2.5rem] text-white flex flex-col gap-8">
           <div className="space-y-6">
-            <p className="text-[10px] font-black uppercase tracking-widest text-blue-500">Meta Mensual</p>
+            <div className="flex items-center justify-between">
+              <p className="text-[10px] font-black uppercase tracking-widest text-blue-500">Meta Mensual</p>
+              <span className="text-[10px] font-bold text-slate-500 uppercase">{formatCurrency(stats.monthIncome)} / {formatCurrency(stats.goal)}</span>
+            </div>
             <h4 className="text-3xl font-black">{stats.goalPercent}% completado</h4>
             <div className="relative h-3 bg-slate-800 rounded-full overflow-hidden">
                <motion.div initial={{ width: 0 }} animate={{ width: `${stats.goalPercent}%` }} className="absolute inset-y-0 bg-blue-600 rounded-full" />
             </div>
-            <p className="text-xs text-slate-500 font-bold uppercase">Objetivo: {formatCurrency(stats.goal)}</p>
           </div>
-          <div className="mt-8 p-6 bg-slate-800/50 rounded-2xl border border-slate-700">
-            <p className="text-[10px] font-bold text-slate-400 mb-1 uppercase">Proyección Estimada</p>
+
+          <div className="space-y-6 pt-8 border-t border-slate-800">
+            <div className="flex items-center justify-between">
+              <p className="text-[10px] font-black uppercase tracking-widest text-emerald-500">Punto de Equilibrio</p>
+              <span className="text-[10px] font-bold text-slate-500 uppercase">{formatCurrency(stats.monthIncome)} / {formatCurrency(stats.breakEvenTarget)}</span>
+            </div>
+            <div className="flex items-end justify-between">
+              <h4 className="text-3xl font-black">{stats.breakEvenPercent}%</h4>
+              <div className={cn(
+                "px-2 py-1 rounded-lg text-[9px] font-black uppercase",
+                stats.breakEvenPercent >= 100 ? "bg-emerald-500/10 text-emerald-500" : "bg-amber-500/10 text-amber-500"
+              )}>
+                {stats.breakEvenPercent >= 100 ? "¡LIBRE DE GASTOS!" : "EN PROGRESO"}
+              </div>
+            </div>
+            <div className="relative h-3 bg-slate-800 rounded-full overflow-hidden">
+               <motion.div initial={{ width: 0 }} animate={{ width: `${stats.breakEvenPercent}%` }} className="absolute inset-y-0 bg-emerald-500 rounded-full" />
+            </div>
+            <p className="text-[9px] text-slate-500 font-bold uppercase leading-relaxed">
+              Basado en gastos del mes anterior: <span className="text-slate-300">{formatCurrency(stats.breakEvenTarget)}</span>
+            </p>
+          </div>
+          
+          <div className="mt-auto p-6 bg-slate-800/50 rounded-2xl border border-slate-700">
+            <p className="text-[10px] font-bold text-slate-400 mb-1 uppercase">Proyección de Ingresos</p>
             <p className="text-2xl font-black text-white">{formatCurrency(stats.income * 1.2)}</p>
           </div>
         </div>
