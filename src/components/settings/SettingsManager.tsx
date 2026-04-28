@@ -27,7 +27,6 @@ export default function SettingsManager() {
      }
   };
   const [newEmail, setNewEmail] = useState('');
-  const [newRole, setNewRole] = useState('sales');
 
   useEffect(() => {
     onSnapshot(collection(db, 'users'), snap => {
@@ -52,7 +51,7 @@ export default function SettingsManager() {
       // Use email as ID (sanitized) or just add to collection
       await setDoc(doc(db, 'users', newEmail.replace(/\./g, '_')), {
         email: newEmail,
-        role: newRole,
+        role: 'user',
         name: newEmail.split('@')[0],
         authorizedAt: new Date().toISOString()
       });
@@ -98,7 +97,7 @@ export default function SettingsManager() {
     <div className="space-y-8 animate-in fade-in duration-500">
       <div className="space-y-1">
         <h2 className="text-4xl font-black text-slate-900 tracking-tight">Configuración</h2>
-        <p className="text-slate-500 font-medium">Control de usuarios por correo, roles y metas mensuales.</p>
+        <p className="text-slate-500 font-medium">Control de usuarios por correo y metas mensuales.</p>
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
@@ -214,15 +213,6 @@ export default function SettingsManager() {
                 onChange={(e) => setNewEmail(e.target.value)}
                 className="flex-1 px-4 py-2 bg-white rounded-xl border-slate-200 text-sm font-bold focus:ring-blue-600"
               />
-              <select 
-                value={newRole}
-                onChange={(e) => setNewRole(e.target.value)}
-                className="bg-white border-slate-200 rounded-xl text-xs font-bold p-2 focus:ring-blue-600"
-              >
-                <option value="sales">Ventas</option>
-                <option value="production">Producción</option>
-                <option value="admin">Admin</option>
-              </select>
               <button className="bg-blue-600 text-white p-2 rounded-xl hover:bg-blue-700 transition-colors">
                 <Plus className="w-5 h-5" />
               </button>
@@ -243,15 +233,6 @@ export default function SettingsManager() {
                 </div>
                 
                 <div className="flex items-center gap-2">
-                  <select 
-                    value={u.role}
-                    onChange={(e) => handleUpdateRole(u.id, e.target.value)}
-                    className="bg-white border-slate-200 rounded-xl text-xs font-bold p-2 focus:ring-blue-600"
-                  >
-                    <option value="sales">Ventas</option>
-                    <option value="production">Producción</option>
-                    <option value="admin">Administrador</option>
-                  </select>
                   <button 
                     onClick={() => handleDeleteUser(u.id)}
                     className="p-2 text-slate-300 hover:text-rose-600 hover:bg-white rounded-xl transition-all"

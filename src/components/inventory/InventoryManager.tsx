@@ -1,7 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { 
   Package, Plus, Search, Filter, AlertTriangle, 
-  ArrowRight, MoreVertical, Edit2, Trash2, Scale
+  ArrowRight, MoreVertical, Edit2, Trash2, Scale,
+  TrendingUp, ArrowUpRight
 } from 'lucide-react';
 import { collection, onSnapshot, addDoc, updateDoc, deleteDoc, doc, query, orderBy } from 'firebase/firestore';
 import { db, handleFirestoreError, OperationType } from '../../lib/firebase';
@@ -102,6 +103,11 @@ export default function InventoryManager() {
   const filteredIngredients = ingredients.filter(i => i.name.toLowerCase().includes(searchTerm.toLowerCase()));
   const filteredProducts = products.filter(p => p.flavor.toLowerCase().includes(searchTerm.toLowerCase()));
 
+  // Calculate totals
+  const totalIngredientsValue = ingredients.reduce((sum, item) => sum + (item.stock * item.costPerUnit), 0);
+  const totalProductsWholesale = products.reduce((sum, item) => sum + (item.stock * item.priceWholesale), 0);
+  const totalProductsRetail = products.reduce((sum, item) => sum + (item.stock * item.priceRetail), 0);
+
   return (
     <div className="space-y-6">
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
@@ -116,6 +122,50 @@ export default function InventoryManager() {
           <Plus className="w-5 h-5" />
           Nuevo Item
         </button>
+      </div>
+
+      {/* Capital Summary Section */}
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+        <div className="bg-slate-900 p-6 rounded-3xl text-white shadow-xl">
+          <p className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-400 mb-2">Inversión en Insumos</p>
+          <div className="flex items-center justify-between">
+            <p className="text-2xl font-black">{formatCurrency(totalIngredientsValue)}</p>
+            <div className="p-2 bg-white/5 rounded-xl border border-white/10">
+              <Scale className="w-5 h-5 text-blue-400" />
+            </div>
+          </div>
+          <div className="mt-4 pt-4 border-t border-white/5 flex items-center gap-2">
+            <span className="text-[10px] font-bold text-slate-500 uppercase">Basado en costo unitario</span>
+          </div>
+        </div>
+
+        <div className="bg-white p-6 rounded-3xl border border-slate-100 shadow-sm">
+          <p className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-400 mb-2">Valor Total Mayoreo</p>
+          <div className="flex items-center justify-between">
+            <p className="text-2xl font-black text-slate-900">{formatCurrency(totalProductsWholesale)}</p>
+            <div className="p-2 bg-blue-50 rounded-xl">
+              <Package className="w-5 h-5 text-blue-600" />
+            </div>
+          </div>
+          <div className="mt-4 pt-4 border-t border-slate-100 flex items-center gap-2 text-blue-600">
+            <TrendingUp className="w-3 h-3" />
+            <span className="text-[10px] font-bold uppercase tracking-wider">Potencial Mayorista</span>
+          </div>
+        </div>
+
+        <div className="bg-white p-6 rounded-3xl border border-slate-100 shadow-sm">
+          <p className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-400 mb-2">Valor Total Menudeo</p>
+          <div className="flex items-center justify-between">
+            <p className="text-2xl font-black text-slate-900">{formatCurrency(totalProductsRetail)}</p>
+            <div className="p-2 bg-emerald-50 rounded-xl">
+              <ArrowUpRight className="w-5 h-5 text-emerald-600" />
+            </div>
+          </div>
+          <div className="mt-4 pt-4 border-t border-slate-100 flex items-center gap-2 text-emerald-600">
+            <TrendingUp className="w-3 h-3" />
+            <span className="text-[10px] font-bold uppercase tracking-wider">Potencial Público Final</span>
+          </div>
+        </div>
       </div>
 
       {/* Internal Tabs */}

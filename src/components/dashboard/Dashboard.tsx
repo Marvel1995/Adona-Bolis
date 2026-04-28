@@ -42,6 +42,7 @@ export default function Dashboard() {
   const [ingredients, setIngredients] = useState<any[]>([]);
   const [products, setProducts] = useState<any[]>([]);
   const [recipePerformance, setRecipePerformance] = useState<any[]>([]);
+  const [timeRange, setTimeRange] = useState<'7d' | '1m' | '3m' | '1y'>('7d');
 
   useEffect(() => {
     // Basic data fetching
@@ -100,38 +101,73 @@ export default function Dashboard() {
       }));
 
       // Update chart with cumulative balance
-      const days = ['Dom', 'Lun', 'Mar', 'Mie', 'Jue', 'Vie', 'Sab'];
-      const last7Days = Array.from({length: 7}, (_, i) => {
+      const getTimeRangeConfig = () => {
+        const now = new Date();
+        switch(timeRange) {
+          case '1m': return { days: 30, interval: 1, label: 'Mensual' };
+          case '3m': return { days: 90, interval: 2, label: 'Trimestral' };
+          case '1y': return { days: 365, interval: 30, label: 'Anual' };
+          default: return { days: 7, interval: 1, label: 'Semanal' };
+        }
+      };
+
+      const config = getTimeRangeConfig();
+      const rangeData: any[] = [];
+      const daysAbbr = ['Dom', 'Lun', 'Mar', 'Mie', 'Jue', 'Vie', 'Sab'];
+      const monthsAbbr = ['Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun', 'Jul', 'Ago', 'Sep', 'Oct', 'Nov', 'Dic'];
+
+      for (let i = config.days - 1; i >= 0; i--) {
         const d = new Date();
-        d.setDate(d.getDate() - (6 - i));
-        return { 
-          name: days[d.getDay()], 
-          dateStr: d.toISOString().split('T')[0],
-          ingresos: 0,
-          gastos: 0,
-          balance: 0
-        };
-      });
+        d.setDate(d.getDate() - i);
+        const dateStr = d.toISOString().split('T')[0];
+        
+        // Label logic
+        let name = '';
+        if (timeRange === '1y') {
+          name = monthsAbbr[d.getMonth()];
+          // Only push if it's a new month or first element
+          if (rangeData.length === 0 || rangeData[rangeData.length - 1].name !== name) {
+            rangeData.push({ name, dateStr, ingresos: 0, gastos: 0, balance: 0, fullDate: dateStr });
+          }
+        } else {
+          name = timeRange === '7d' ? daysAbbr[d.getDay()] : d.getDate().toString();
+          rangeData.push({ name, dateStr, ingresos: 0, gastos: 0, balance: 0, fullDate: dateStr });
+        }
+      }
 
       salesSnap.forEach(doc => {
         const d = doc.data();
         const date = (d.date || '').split('T')[0];
-        const dayMatch = last7Days.find(ld => ld.dateStr === date);
-        if (dayMatch && d.status === 'paid') dayMatch.ingresos += (d.total || 0);
+        const isPaid = d.status === 'paid';
+        if (!isPaid) return;
+
+        if (timeRange === '1y') {
+          const monthName = monthsAbbr[new Date(date + 'T00:00:00').getMonth()];
+          const match = rangeData.find(rd => rd.name === monthName);
+          if (match) match.ingresos += (d.total || 0);
+        } else {
+          const match = rangeData.find(rd => rd.dateStr === date);
+          if (match) match.ingresos += (d.total || 0);
+        }
       });
 
-      // Also get expenses for the chart in real-time
       getDocs(collection(db, 'expenses')).then(expSnap => {
         expSnap.forEach(doc => {
           const d = doc.data();
           const date = (d.date || '').split('T')[0];
-          const dayMatch = last7Days.find(ld => ld.dateStr === date);
-          if (dayMatch) dayMatch.gastos += (d.amount || 0);
+          
+          if (timeRange === '1y') {
+            const monthName = monthsAbbr[new Date(date + 'T00:00:00').getMonth()];
+            const match = rangeData.find(rd => rd.name === monthName);
+            if (match) match.gastos += (d.amount || 0);
+          } else {
+            const match = rangeData.find(rd => rd.dateStr === date);
+            if (match) match.gastos += (d.amount || 0);
+          }
         });
 
-        // Calculate cumulative balance
         let runningBalance = 0;
-        const finalChartData = last7Days.map(day => {
+        const finalChartData = rangeData.map(day => {
           runningBalance += (day.ingresos - day.gastos);
           return { ...day, balance: runningBalance };
         });
@@ -169,7 +205,7 @@ export default function Dashboard() {
       unsubIngs();
       unsubProds();
     };
-  }, []);
+  }, [timeRange]);
 
   useEffect(() => {
     if (recipes.length === 0 || ingredients.length === 0) return;
@@ -327,19 +363,26 @@ export default function Dashboard() {
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
         <div className="lg:col-span-2 bg-white p-8 rounded-3xl border border-slate-200 min-h-[450px] shadow-sm">
-          <div className="flex items-center justify-between mb-8">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between mb-8 gap-4">
             <div>
               <h3 className="font-black text-xl text-slate-900 tracking-tight uppercase">Rendimiento Financiero</h3>
-              <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mt-1">Balance acumulado de los últimos 7 días</p>
+              <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mt-1">Balance acumulado del periodo seleccionado</p>
             </div>
-            <div className="flex items-center gap-4">
-              <div className="flex items-center gap-2">
-                <div className={cn(
-                  "w-2 h-2 rounded-full",
-                  (chartData[chartData.length - 1]?.balance || 0) >= 0 ? "bg-emerald-500" : "bg-rose-500"
-                )}></div>
-                <span className="text-[10px] font-black text-slate-500 uppercase">Estado de Caja</span>
-              </div>
+            <div className="flex items-center gap-2 p-1 bg-slate-100 rounded-xl">
+              {(['7d', '1m', '3m', '1y'] as const).map((r) => (
+                <button
+                  key={r}
+                  onClick={() => setTimeRange(r)}
+                  className={cn(
+                    "px-3 py-1.5 rounded-lg text-[10px] font-black uppercase transition-all",
+                    timeRange === r 
+                      ? "bg-white text-blue-600 shadow-sm" 
+                      : "text-slate-500 hover:text-slate-700"
+                  )}
+                >
+                  {r === '7d' ? '7D' : r === '1m' ? '1M' : r === '3m' ? '3M' : '1A'}
+                </button>
+              ))}
             </div>
           </div>
           
@@ -375,7 +418,7 @@ export default function Dashboard() {
                         return (
                           <div className="bg-slate-900 border border-slate-800 p-4 rounded-2xl shadow-2xl backdrop-blur-md bg-opacity-95">
                             <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2 border-b border-white/5 pb-2">
-                              {data.dateStr}
+                              {data.fullDate || data.dateStr}
                             </p>
                             <div className="space-y-3">
                               <div className="flex items-center justify-between gap-8">

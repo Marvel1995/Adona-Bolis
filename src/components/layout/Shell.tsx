@@ -14,19 +14,18 @@ interface NavItem {
   id: string;
   label: string;
   icon: React.ElementType;
-  role?: string[];
 }
 
 const navItems: NavItem[] = [
   { id: 'dashboard', label: 'Dashboard 360', icon: LayoutDashboard },
-  { id: 'production', label: 'Producción', icon: Layers, role: ['admin', 'production'] },
-  { id: 'recipes', label: 'Recetario', icon: ClipboardList, role: ['admin', 'production'] },
-  { id: 'inventory', label: 'Inventario', icon: Package, role: ['admin', 'production', 'sales'] },
-  { id: 'sales', label: 'Ventas', icon: ShoppingCart, role: ['admin', 'sales'] },
-  { id: 'orders', label: 'Pedidos', icon: Truck, role: ['admin', 'sales', 'production'] },
-  { id: 'customers', label: 'Clientes', icon: Users, role: ['admin', 'sales'] },
-  { id: 'finances', label: 'Gastos Fijos', icon: DollarSign, role: ['admin'] },
-  { id: 'settings', label: 'Configuración', icon: SettingsIcon, role: ['admin'] },
+  { id: 'production', label: 'Producción', icon: Layers },
+  { id: 'recipes', label: 'Recetario', icon: ClipboardList },
+  { id: 'inventory', label: 'Inventario', icon: Package },
+  { id: 'sales', label: 'Ventas', icon: ShoppingCart },
+  { id: 'orders', label: 'Pedidos', icon: Truck },
+  { id: 'customers', label: 'Clientes', icon: Users },
+  { id: 'finances', label: 'Gastos Fijos', icon: DollarSign },
+  { id: 'settings', label: 'Configuración', icon: SettingsIcon },
 ];
 
 const ADMIN_EMAIL = 'hernandezalexis997@gmail.com';
@@ -170,7 +169,7 @@ export default function Shell({ children, activeTab, onTabChange }: { children: 
     );
   }
 
-  const filteredNavItems = navItems.filter(item => !item.role || (role && (role === 'admin' || item.role.includes(role || ''))));
+  const filteredNavItems = navItems;
 
   return (
     <div className="flex h-screen bg-slate-50 font-sans text-slate-900 overflow-hidden">
@@ -215,7 +214,7 @@ export default function Shell({ children, activeTab, onTabChange }: { children: 
             <img src={user.photoURL} alt="" className="w-8 h-8 rounded-full border border-slate-700" />
             <div className="overflow-hidden">
               <p className="text-xs font-bold text-white truncate">{user.displayName}</p>
-              <p className="text-[10px] text-slate-500 uppercase font-mono">{role}</p>
+              <p className="text-[10px] text-slate-500 uppercase font-mono">{role === 'admin' ? 'Administrador' : 'Usuario'}</p>
             </div>
           </div>
           <button 
@@ -243,7 +242,7 @@ export default function Shell({ children, activeTab, onTabChange }: { children: 
               <h2 className="text-sm font-bold text-slate-800 uppercase tracking-tight">
                 {navItems.find(i => i.id === activeTab)?.label || 'BolisPro Control'}
               </h2>
-              <span className="text-[10px] text-slate-400 font-mono">USUARIO/{role?.toUpperCase()}</span>
+              <span className="text-[10px] text-slate-400 font-mono">ERP/SISTEMA</span>
             </div>
           </div>
           
