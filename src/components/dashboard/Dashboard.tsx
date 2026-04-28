@@ -1,7 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { 
   TrendingUp, TrendingDown, DollarSign, Package, 
-  AlertTriangle, CheckCircle2, ShoppingBag, ArrowUpRight
+  AlertTriangle, CheckCircle2, ShoppingBag, ArrowUpRight,
+  Clock, Calendar, User, MapPin
 } from 'lucide-react';
 import { 
   BarChart, Bar, XAxis, YAxis, CartesianGrid, 
@@ -15,6 +16,9 @@ import { motion } from 'motion/react';
 export default function Dashboard() {
   const [stats, setStats] = useState({
     cash: 0,
+    cashTotal: 0,
+    cardTotal: 0,
+    pendingTotal: 0,
     income: 0,
     expenses: 0,
     goalPercent: 0,
@@ -32,10 +36,12 @@ export default function Dashboard() {
   });
 
   const [topProducts, setTopProducts] = useState<any[]>([]);
+  const [scheduledOrders, setScheduledOrders] = useState<any[]>([]);
   const [chartData, setChartData] = useState<any[]>([]);
   const [recipes, setRecipes] = useState<any[]>([]);
   const [ingredients, setIngredients] = useState<any[]>([]);
   const [products, setProducts] = useState<any[]>([]);
+  const [recipePerformance, setRecipePerformance] = useState<any[]>([]);
 
   useEffect(() => {
     // Basic data fetching
@@ -44,11 +50,28 @@ export default function Dashboard() {
     const unsubProds = onSnapshot(collection(db, 'products'), (snap) => setProducts(snap.docs.map(d => ({ id: d.id, ...d.data() }))));
 
     const unsubSales = onSnapshot(collection(db, 'sales'), (salesSnap) => {
-      const totalSales = salesSnap.docs.reduce((sum, d) => sum + (d.data().total || 0), 0);
+      const now = new Date();
+      const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1).toISOString().split('T')[0];
+      
+      let monthSales = 0;
+      let totalIncome = 0;
       
       const productMap: Record<string, { name: string, sales: number }> = {};
       salesSnap.forEach(d => {
-        d.data().items?.forEach((item: any) => {
+        const data = d.data();
+        const saleDate = data.date || '';
+        const saleDay = saleDate.split('T')[0];
+        const isPaid = data.status === 'paid';
+        const total = data.total || 0;
+
+        if (isPaid) {
+          totalIncome += total;
+          if (saleDay >= startOfMonth) {
+            monthSales += total;
+          }
+        }
+
+        data.items?.forEach((item: any) => {
           if (!productMap[item.productId]) productMap[item.productId] = { name: item.flavor, sales: 0 };
           productMap[item.productId].sales += item.quantity;
         });
@@ -61,14 +84,22 @@ export default function Dashboard() {
       
       setTopProducts(sortedProducts);
       
+      const scheduled = salesSnap.docs
+        .map(d => ({ id: d.id, ...d.data() }))
+        .filter((s: any) => s.status === 'scheduled')
+        .sort((a: any, b: any) => (a.deliveryDate || '').localeCompare(b.deliveryDate || ''))
+        .slice(0, 5);
+      
+      setScheduledOrders(scheduled);
+      
       // Update stats related to sales
       setStats(prev => ({
         ...prev,
-        income: totalSales,
-        goalPercent: Math.min(Math.round((totalSales / prev.goal) * 100), 100)
+        income: totalIncome,
+        goalPercent: Math.min(Math.round((monthSales / prev.goal) * 100), 100)
       }));
 
-      // Update chart with sales
+      // Update chart with cumulative balance
       const days = ['Dom', 'Lun', 'Mar', 'Mie', 'Jue', 'Vie', 'Sab'];
       const last7Days = Array.from({length: 7}, (_, i) => {
         const d = new Date();
@@ -77,26 +108,35 @@ export default function Dashboard() {
           name: days[d.getDay()], 
           dateStr: d.toISOString().split('T')[0],
           ingresos: 0,
-          gastos: 0
+          gastos: 0,
+          balance: 0
         };
       });
 
       salesSnap.forEach(doc => {
         const d = doc.data();
-        const date = d.date?.split('T')[0];
+        const date = (d.date || '').split('T')[0];
         const dayMatch = last7Days.find(ld => ld.dateStr === date);
-        if (dayMatch) dayMatch.ingresos += d.total;
+        if (dayMatch && d.status === 'paid') dayMatch.ingresos += (d.total || 0);
       });
 
       // Also get expenses for the chart in real-time
       getDocs(collection(db, 'expenses')).then(expSnap => {
         expSnap.forEach(doc => {
           const d = doc.data();
-          const date = d.date?.split('T')[0];
+          const date = (d.date || '').split('T')[0];
           const dayMatch = last7Days.find(ld => ld.dateStr === date);
-          if (dayMatch) dayMatch.gastos += d.amount;
+          if (dayMatch) dayMatch.gastos += (d.amount || 0);
         });
-        setChartData(last7Days);
+
+        // Calculate cumulative balance
+        let runningBalance = 0;
+        const finalChartData = last7Days.map(day => {
+          runningBalance += (day.ingresos - day.gastos);
+          return { ...day, balance: runningBalance };
+        });
+        
+        setChartData(finalChartData);
       });
     });
 
@@ -131,40 +171,39 @@ export default function Dashboard() {
     };
   }, []);
 
-  // Effect to calculate unit performance metrics
   useEffect(() => {
-    if (recipes.length === 0 || ingredients.length === 0 || products.length === 0) return;
+    if (recipes.length === 0 || ingredients.length === 0) return;
 
-    // Calculate Average Cost per Liter across all recipes
-    const recipeCosts = recipes.map(recipe => {
+    const performance = recipes.map(recipe => {
+      // Cost per Liter for THIS recipe
       const totalCost = recipe.ingredients.reduce((sum: number, ri: any) => {
         const ing = ingredients.find(i => i.id === ri.ingredientId);
         return sum + (ing ? ing.costPerUnit * ri.quantity : 0);
       }, 0);
-      return totalCost / (recipe.yieldLitros || 1);
+      
+      const costPerLiter = totalCost / (recipe.yieldLitros || 1);
+      const unitCost = (costPerLiter / 1000) * stats.mlPerBolis;
+
+      // Profit using individual recipe prices
+      const priceRetail = recipe.priceRetail || 10;
+      const priceWholesale = recipe.priceWholesale || 8;
+
+      const profitRetail = priceRetail - unitCost;
+      const profitWholesale = priceWholesale - unitCost;
+
+      return {
+        id: recipe.id,
+        name: recipe.name,
+        unitCost,
+        profitRetail,
+        profitWholesale,
+        marginRetail: (profitRetail / (priceRetail || 1)) * 100,
+        marginWholesale: (profitWholesale / (priceWholesale || 1)) * 100
+      };
     });
 
-    const avgCostPerLiter = recipeCosts.reduce((a, b) => a + b, 0) / (recipeCosts.length || 1);
-    
-    // Cost per Unit (Bolis)
-    const avgUnitCost = (avgCostPerLiter / 1000) * stats.mlPerBolis;
-
-    // Use Global Settings for Profit Calculation
-    const avgProfitRetail = stats.priceRetail - avgUnitCost;
-    const avgProfitWholesale = stats.priceWholesale - avgUnitCost;
-    
-    const avgMarginRetail = (avgProfitRetail / (stats.priceRetail || 1)) * 100;
-    const avgMarginWholesale = (avgProfitWholesale / (stats.priceWholesale || 1)) * 100;
-
-    setStats(prev => ({
-      ...prev,
-      avgUnitCost,
-      avgProfitRetail,
-      avgProfitWholesale,
-      avgMarginRetail,
-      avgMarginWholesale
-    }));
-  }, [recipes, ingredients, products, stats.mlPerBolis, stats.priceRetail, stats.priceWholesale]);
+    setRecipePerformance(performance);
+  }, [recipes, ingredients, stats.mlPerBolis]);
 
   // Effect to handle cash calculation when both sales and expenses change
   useEffect(() => {
@@ -172,13 +211,35 @@ export default function Dashboard() {
       const salesSnap = await getDocs(collection(db, 'sales'));
       const expSnap = await getDocs(collection(db, 'expenses'));
       
-      const incomePaid = salesSnap.docs
-        .filter(d => d.data().status === 'paid')
-        .reduce((sum, d) => sum + (d.data().total || 0), 0);
+      let incomePaid = 0;
+      let cashTotal = 0;
+      let cardTotal = 0;
+      let pendingTotal = 0;
+
+      salesSnap.docs.forEach(d => {
+        const data = d.data();
+        const total = data.total || 0;
+        if (data.status === 'paid') {
+          incomePaid += total;
+          if (data.paymentMethod === 'tarjeta') {
+            cardTotal += total;
+          } else {
+            cashTotal += total;
+          }
+        } else {
+          pendingTotal += total;
+        }
+      });
         
       const totalExp = expSnap.docs.reduce((sum, d) => sum + (d.data().amount || 0), 0);
       
-      setStats(prev => ({ ...prev, cash: incomePaid - totalExp }));
+      setStats(prev => ({ 
+        ...prev, 
+        cash: cashTotal - totalExp, 
+        cashTotal,
+        cardTotal,
+        pendingTotal
+      }));
     };
     calculateCash();
   }, [stats.income, stats.expenses]);
@@ -193,67 +254,164 @@ export default function Dashboard() {
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-        <StatCard title="Efectivo Caja" value={formatCurrency(stats.cash)} icon={DollarSign} color="blue" />
-        <StatCard title="Ventas Mes" value={formatCurrency(stats.income)} icon={TrendingUp} color="green" />
+        <div className="bg-white p-6 rounded-3xl shadow-sm border border-slate-200">
+          <div className="flex justify-between mb-4">
+            <div className="p-3 rounded-2xl border bg-blue-50 text-blue-600 border-blue-100"><DollarSign className="w-6 h-6" /></div>
+          </div>
+          <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Efectivo en Caja</p>
+          <p className="text-2xl font-black text-slate-900 mt-1">{formatCurrency(stats.cash)}</p>
+          <div className="mt-2 flex gap-3 text-[9px] font-bold uppercase">
+             <span className="text-gray-400">Cash: <span className="text-gray-600">{formatCurrency(stats.cashTotal)}</span></span>
+             <span className="text-gray-400">Card: <span className="text-gray-600">{formatCurrency(stats.cardTotal)}</span></span>
+          </div>
+        </div>
+        <StatCard title="Ventas Totales" value={formatCurrency(stats.income)} icon={TrendingUp} color="green" />
         <StatCard title="Gastos Totales" value={formatCurrency(stats.expenses)} icon={TrendingDown} color="red" />
-        <StatCard title="Alertas Stock" value={stats.reorderCount.toString()} icon={AlertTriangle} color="amber" isWarning={stats.reorderCount > 0} />
+        <div className="bg-white p-6 rounded-3xl shadow-sm border border-slate-200">
+          <div className="flex justify-between mb-4">
+            <div className="p-3 rounded-2xl border bg-rose-50 text-rose-600 border-rose-100"><AlertTriangle className="w-6 h-6" /></div>
+            {stats.pendingTotal > 0 && <div className="text-[10px] font-black text-rose-600 bg-rose-50 px-2 py-1 rounded-full border border-rose-100 uppercase">Cobro Pend.</div>}
+          </div>
+          <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Cuentas por Cobrar</p>
+          <p className="text-2xl font-black text-slate-900 mt-1">{formatCurrency(stats.pendingTotal)}</p>
+          <p className="text-[9px] font-bold text-slate-400 uppercase mt-2">Ventas pendientes de pago</p>
+        </div>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-        <div className="bg-white p-6 rounded-3xl border border-blue-100 shadow-sm flex items-center gap-5">
-           <div className="w-14 h-14 bg-blue-600 rounded-[1.25rem] flex items-center justify-center text-white shadow-lg shadow-blue-100">
-              <Package className="w-7 h-7" />
-           </div>
-           <div>
-             <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest leading-none mb-1">Costo por Bolis</p>
-             <p className="text-2xl font-black text-slate-900 leading-none">{formatCurrency(stats.avgUnitCost)}</p>
-             <p className="text-[10px] font-bold text-blue-600 mt-1">PROMEDIO {stats.mlPerBolis}ml</p>
-           </div>
+      {/* Sección Rentabilidad por Receta */}
+      <div className="space-y-6">
+        <div className="flex items-center justify-between">
+          <h3 className="font-black text-xl text-slate-900 uppercase tracking-tight flex items-center gap-2">
+            <Package className="w-6 h-6 text-blue-600" />
+            Análisis por Sabor
+          </h3>
+          <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest bg-slate-100 px-3 py-1 rounded-full">
+            Unitario ({stats.mlPerBolis}ml)
+          </span>
         </div>
-        <div className="bg-white p-6 rounded-3xl border border-emerald-100 shadow-sm flex items-center gap-5">
-           <div className="w-14 h-14 bg-emerald-500 rounded-[1.25rem] flex items-center justify-center text-white shadow-lg shadow-emerald-100">
-              <TrendingUp className="w-7 h-7" />
-           </div>
-           <div>
-             <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest leading-none mb-1">Ganan. Menudeo</p>
-             <p className="text-2xl font-black text-slate-900 leading-none">{formatCurrency(stats.avgProfitRetail)}</p>
-             <p className="text-[10px] font-bold text-emerald-600 mt-1">{stats.avgMarginRetail.toFixed(0)}% MARGEN</p>
-           </div>
-        </div>
-        <div className="bg-white p-6 rounded-3xl border border-indigo-100 shadow-sm flex items-center gap-5">
-           <div className="w-14 h-14 bg-indigo-600 rounded-[1.25rem] flex items-center justify-center text-white shadow-lg shadow-indigo-100">
-              <CheckCircle2 className="w-7 h-7" />
-           </div>
-           <div>
-             <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest leading-none mb-1">Ganan. Mayoreo</p>
-             <p className="text-2xl font-black text-slate-900 leading-none">{formatCurrency(stats.avgProfitWholesale)}</p>
-             <p className="text-[10px] font-bold text-indigo-600 mt-1">{stats.avgMarginWholesale.toFixed(0)}% MARGEN</p>
-           </div>
+
+        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6">
+          {recipePerformance.map((perf) => (
+            <div key={perf.id} className="bg-white rounded-[2rem] border border-slate-100 shadow-sm overflow-hidden flex flex-col">
+              <div className="p-5 border-b border-slate-50 bg-slate-50/50 flex justify-between items-center">
+                <span className="font-black text-slate-900 uppercase tracking-tight">{perf.name}</span>
+                <div className="flex flex-col items-end">
+                  <span className="text-[10px] font-black text-slate-400 uppercase leading-none mb-1">Costo Unit.</span>
+                  <span className="text-lg font-black text-blue-600 leading-none">{formatCurrency(perf.unitCost)}</span>
+                </div>
+              </div>
+              
+              <div className="p-5 grid grid-cols-2 gap-4 bg-white">
+                <div className="space-y-1">
+                  <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest leading-none">Gan. Menudeo</p>
+                  <p className="text-xl font-black text-emerald-600 leading-none">{formatCurrency(perf.profitRetail)}</p>
+                  <div className="flex items-center gap-1">
+                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-500"></span>
+                    <p className="text-[10px] font-bold text-emerald-500">{perf.marginRetail.toFixed(0)}% Margen</p>
+                  </div>
+                </div>
+                
+                <div className="space-y-1">
+                  <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest leading-none">Gan. Mayoreo</p>
+                  <p className="text-xl font-black text-indigo-600 leading-none">{formatCurrency(perf.profitWholesale)}</p>
+                  <div className="flex items-center gap-1">
+                    <span className="w-1.5 h-1.5 rounded-full bg-indigo-500"></span>
+                    <p className="text-[10px] font-bold text-indigo-500">{perf.marginWholesale.toFixed(0)}% Margen</p>
+                  </div>
+                </div>
+              </div>
+            </div>
+          ))}
         </div>
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-        <div className="lg:col-span-2 bg-white p-8 rounded-3xl border border-slate-200 min-h-[450px]">
-          <h3 className="font-bold text-xl mb-8">Rendimiento Operativo</h3>
+        <div className="lg:col-span-2 bg-white p-8 rounded-3xl border border-slate-200 min-h-[450px] shadow-sm">
+          <div className="flex items-center justify-between mb-8">
+            <div>
+              <h3 className="font-black text-xl text-slate-900 tracking-tight uppercase">Rendimiento Financiero</h3>
+              <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mt-1">Balance acumulado de los últimos 7 días</p>
+            </div>
+            <div className="flex items-center gap-4">
+              <div className="flex items-center gap-2">
+                <div className={cn(
+                  "w-2 h-2 rounded-full",
+                  (chartData[chartData.length - 1]?.balance || 0) >= 0 ? "bg-emerald-500" : "bg-rose-500"
+                )}></div>
+                <span className="text-[10px] font-black text-slate-500 uppercase">Estado de Caja</span>
+              </div>
+            </div>
+          </div>
+          
           <div className="h-[350px] w-full relative" style={{ minWidth: 0 }}>
             {chartData.length > 0 && (
-              <ResponsiveContainer width="100%" height="100%" minHeight={100}>
-                <AreaChart data={chartData}>
-                  <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
+              <ResponsiveContainer width="100%" height="100%" minHeight={100} minWidth={0}>
+                <AreaChart data={chartData} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
+                  <defs>
+                    <linearGradient id="colorBalance" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="5%" stopColor={(chartData[chartData.length - 1]?.balance || 0) >= 0 ? "#10b981" : "#f43f5e"} stopOpacity={0.15}/>
+                      <stop offset="95%" stopColor={(chartData[chartData.length - 1]?.balance || 0) >= 0 ? "#10b981" : "#f43f5e"} stopOpacity={0.01}/>
+                    </linearGradient>
+                  </defs>
+                  <CartesianGrid strokeDasharray="4 4" vertical={false} stroke="#f1f5f9" />
                   <XAxis 
                     dataKey="name" 
                     axisLine={false} 
                     tickLine={false} 
-                    tick={{fill: '#94a3b8', fontSize: 12}}
-                    minTickGap={20}
+                    tick={{fill: '#94a3b8', fontSize: 10, fontWeight: 700}}
+                    dy={10}
                   />
-                  <YAxis hide domain={['auto', 'auto']} />
+                  <YAxis 
+                    axisLine={false} 
+                    tickLine={false} 
+                    tick={{fill: '#94a3b8', fontSize: 10, fontWeight: 700}}
+                    tickFormatter={(value) => `$${value}`}
+                  />
                   <Tooltip 
-                    contentStyle={{borderRadius: '16px', border: 'none', boxShadow: '0 10px 15px -3px rgb(0 0 0 / 0.1)'}}
-                    formatter={(value: number) => [formatCurrency(value), '']}
+                    content={({ active, payload }) => {
+                      if (active && payload && payload.length) {
+                        const data = payload[0].payload;
+                        const isPositive = data.balance >= 0;
+                        return (
+                          <div className="bg-slate-900 border border-slate-800 p-4 rounded-2xl shadow-2xl backdrop-blur-md bg-opacity-95">
+                            <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2 border-b border-white/5 pb-2">
+                              {data.dateStr}
+                            </p>
+                            <div className="space-y-3">
+                              <div className="flex items-center justify-between gap-8">
+                                <span className="text-[10px] font-bold text-slate-400 uppercase">Balance Neto</span>
+                                <span className={cn("text-lg font-black", isPositive ? "text-emerald-400" : "text-rose-400")}>
+                                  {formatCurrency(data.balance)}
+                                </span>
+                              </div>
+                              <div className="grid grid-cols-2 gap-4 pt-2 border-t border-white/5">
+                                <div>
+                                  <span className="text-[8px] font-black text-slate-500 uppercase block">Ingresos</span>
+                                  <span className="text-[10px] font-bold text-emerald-300">+{formatCurrency(data.ingresos)}</span>
+                                </div>
+                                <div>
+                                  <span className="text-[8px] font-black text-slate-500 uppercase block">Gastos</span>
+                                  <span className="text-[10px] font-bold text-rose-300">-{formatCurrency(data.gastos)}</span>
+                                </div>
+                              </div>
+                            </div>
+                          </div>
+                        );
+                      }
+                      return null;
+                    }}
+                    cursor={{ stroke: '#cbd5e1', strokeWidth: 1, strokeDasharray: '4 4' }}
                   />
-                  <Area type="monotone" dataKey="ingresos" stroke="#2563eb" strokeWidth={3} fill="#2563eb" fillOpacity={0.05} animationDuration={1000} />
-                  <Area type="monotone" dataKey="gastos" stroke="#cbd5e1" strokeWidth={2} fill="none" strokeDasharray="5 5" animationDuration={1000} />
+                  <Area 
+                    type="monotone" 
+                    dataKey="balance" 
+                    stroke={(chartData[chartData.length - 1]?.balance || 0) >= 0 ? "#10b981" : "#f43f5e"} 
+                    strokeWidth={4} 
+                    fillOpacity={1} 
+                    fill="url(#colorBalance)" 
+                    activeDot={{ r: 6, stroke: '#fff', strokeWidth: 2, fill: (chartData[chartData.length - 1]?.balance || 0) >= 0 ? "#10b981" : "#f43f5e" }}
+                    animationDuration={1500} 
+                  />
                 </AreaChart>
               </ResponsiveContainer>
             )}
@@ -304,6 +462,49 @@ export default function Dashboard() {
           </div>
         </div>
       </div>
+
+      {scheduledOrders.length > 0 && (
+        <div className="bg-white p-8 rounded-3xl border border-slate-200">
+          <div className="flex items-center justify-between mb-8">
+            <h3 className="text-xl font-bold flex items-center gap-2">
+              <Calendar className="w-6 h-6 text-amber-500" />
+              Próximos Pedidos Agendados
+            </h3>
+            <span className="bg-amber-100 text-amber-600 px-3 py-1 rounded-full text-[10px] font-black uppercase">
+              {scheduledOrders.length} Pendientes
+            </span>
+          </div>
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+            {scheduledOrders.map((order) => (
+              <div key={order.id} className="bg-slate-50 border border-slate-100 p-5 rounded-2xl flex flex-col justify-between">
+                <div>
+                  <div className="flex items-center justify-between mb-3">
+                    <span className="text-[10px] font-black text-amber-600 uppercase tracking-widest">{order.deliveryDate}</span>
+                    {order.deliveryTime && (
+                      <div className="flex items-center gap-1 text-[10px] font-bold text-slate-400 bg-white px-2 py-0.5 rounded-lg border border-slate-100">
+                        <Clock className="w-3 h-3" />
+                        {order.deliveryTime}
+                      </div>
+                    )}
+                  </div>
+                  <div className="flex items-center gap-2 mb-2">
+                    <User className="w-4 h-4 text-slate-400" />
+                    <p className="font-bold text-slate-900 truncate">{order.customerName}</p>
+                  </div>
+                  <div className="flex items-start gap-2 mb-4">
+                    <MapPin className="w-4 h-4 text-slate-300 mt-0.5" />
+                    <p className="text-xs text-slate-500 line-clamp-2">{order.deliveryAddress || 'Sin dirección registrada'}</p>
+                  </div>
+                </div>
+                <div className="pt-4 border-t border-slate-200 flex items-center justify-between">
+                   <div className="text-[10px] font-black text-slate-400 uppercase">Total Pedido</div>
+                   <div className="font-black text-slate-900">{formatCurrency(order.total)}</div>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
     </div>
   );
 }

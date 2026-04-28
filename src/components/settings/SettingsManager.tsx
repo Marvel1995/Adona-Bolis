@@ -9,9 +9,23 @@ export default function SettingsManager() {
   const [goal, setGoal] = useState<number>(100000);
   const [kmCost, setKmCost] = useState<number>(0);
   const [mlPerBolis, setMlPerBolis] = useState<number>(200);
-  const [priceRetail, setPriceRetail] = useState<number>(10);
-  const [priceWholesale, setPriceWholesale] = useState<number>(8);
+  const [recipes, setRecipes] = useState<any[]>([]);
   const [isSaving, setIsSaving] = useState(false);
+
+  useEffect(() => {
+    const unsubRecipes = onSnapshot(collection(db, 'recipes'), (snap) => {
+      setRecipes(snap.docs.map(d => ({ id: d.id, ...d.data() })));
+    });
+    return () => unsubRecipes();
+  }, []);
+
+  const handleUpdateRecipePrice = async (recipeId: string, field: string, value: number) => {
+     try {
+       await updateDoc(doc(db, 'recipes', recipeId), { [field]: value });
+     } catch (err) {
+       handleFirestoreError(err, OperationType.UPDATE, 'recipes');
+     }
+  };
   const [newEmail, setNewEmail] = useState('');
   const [newRole, setNewRole] = useState('sales');
 
@@ -26,8 +40,6 @@ export default function SettingsManager() {
         setGoal(docSnap.data().monthlyGoal || 100000);
         setKmCost(docSnap.data().kmCost || 0);
         setMlPerBolis(docSnap.data().mlPerBolis || 200);
-        setPriceRetail(docSnap.data().priceRetail || 10);
-        setPriceWholesale(docSnap.data().priceWholesale || 8);
       }
     };
     fetchGoal();
@@ -74,9 +86,7 @@ export default function SettingsManager() {
       await setDoc(doc(db, 'settings', 'finance'), { 
         monthlyGoal: Number(goal),
         kmCost: Number(kmCost),
-        mlPerBolis: Number(mlPerBolis),
-        priceRetail: Number(priceRetail),
-        priceWholesale: Number(priceWholesale)
+        mlPerBolis: Number(mlPerBolis)
       }, { merge: true });
       alert('Configuración guardada correctamente');
     } finally {
@@ -138,30 +148,39 @@ export default function SettingsManager() {
               </div>
             </div>
 
-            <div className="grid grid-cols-2 gap-4">
-              <div className="space-y-2">
-                <label className="text-xs font-black text-slate-400 uppercase tracking-widest pl-1">P. Venta Menudeo</label>
-                <div className="relative">
-                  <input 
-                    type="number"
-                    value={priceRetail}
-                    onChange={(e) => setPriceRetail(Number(e.target.value))}
-                    className="w-full text-xl font-black p-4 bg-slate-50 rounded-2xl border-none focus:ring-2 focus:ring-blue-600 transition-all"
-                  />
-                  <span className="absolute right-4 top-1/2 -translate-y-1/2 text-slate-400 font-bold">$</span>
-                </div>
-              </div>
-              <div className="space-y-2">
-                <label className="text-xs font-black text-slate-400 uppercase tracking-widest pl-1">P. Venta Mayoreo</label>
-                <div className="relative">
-                  <input 
-                    type="number"
-                    value={priceWholesale}
-                    onChange={(e) => setPriceWholesale(Number(e.target.value))}
-                    className="w-full text-xl font-black p-4 bg-slate-50 rounded-2xl border-none focus:ring-2 focus:ring-blue-600 transition-all"
-                  />
-                  <span className="absolute right-4 top-1/2 -translate-y-1/2 text-slate-400 font-bold">$</span>
-                </div>
+            <div className="space-y-4">
+              <label className="text-xs font-black text-slate-400 uppercase tracking-widest pl-1">Precios por Sabor (Receta)</label>
+              <div className="space-y-3">
+                {recipes.map(r => (
+                  <div key={r.id} className="bg-slate-50 p-4 rounded-2xl border border-slate-100">
+                    <div className="flex justify-between items-center mb-3">
+                      <span className="font-bold text-slate-700">{r.name}</span>
+                      <span className="text-[10px] bg-blue-100 text-blue-700 px-2 py-1 rounded-lg font-black uppercase">Precios</span>
+                    </div>
+                    <div className="grid grid-cols-2 gap-4">
+                      <div className="relative">
+                        <input 
+                          type="number"
+                          value={r.priceRetail || 10}
+                          onChange={(e) => handleUpdateRecipePrice(r.id, 'priceRetail', Number(e.target.value))}
+                          className="w-full text-lg font-black p-3 bg-white rounded-xl border border-slate-100 focus:ring-2 focus:ring-blue-600 transition-all pl-8"
+                        />
+                        <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-300 font-bold">$</span>
+                        <span className="absolute right-3 top-1/2 -translate-y-1/2 text-[10px] font-black text-slate-300 uppercase">Men</span>
+                      </div>
+                      <div className="relative">
+                        <input 
+                          type="number"
+                          value={r.priceWholesale || 8}
+                          onChange={(e) => handleUpdateRecipePrice(r.id, 'priceWholesale', Number(e.target.value))}
+                          className="w-full text-lg font-black p-3 bg-white rounded-xl border border-slate-100 focus:ring-2 focus:ring-blue-600 transition-all pl-8"
+                        />
+                        <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-300 font-bold">$</span>
+                        <span className="absolute right-3 top-1/2 -translate-y-1/2 text-[10px] font-black text-slate-300 uppercase">May</span>
+                      </div>
+                    </div>
+                  </div>
+                ))}
               </div>
             </div>
 

@@ -13,6 +13,7 @@ import SalesManager from './components/sales/SalesManager';
 import FinanceManager from './components/finances/FinanceManager';
 import CustomerManager from './components/customers/CustomerManager';
 import SettingsManager from './components/settings/SettingsManager';
+import OrderManager from './components/orders/OrderManager';
 
 export default function App() {
   const [activeTab, setActiveTab] = useState('dashboard');
@@ -24,6 +25,7 @@ export default function App() {
       case 'recipes': return <RecipeManager />;
       case 'production': return <ProductionBatchManager />;
       case 'sales': return <SalesManager />;
+      case 'orders': return <OrderManager />;
       case 'finances': return <FinanceManager />;
       case 'customers': return <CustomerManager />;
       case 'settings': return <SettingsManager />;

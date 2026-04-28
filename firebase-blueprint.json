@@ -32,6 +32,8 @@
           }
         },
         "yieldLitros": { "type": "number" },
+        "priceRetail": { "type": "number" },
+        "priceWholesale": { "type": "number" },
         "isActive": { "type": "boolean" }
       },
       "required": ["name", "baseType", "ingredients", "yieldLitros"]
@@ -95,8 +97,15 @@
           }
         },
         "total": { "type": "number" },
+        "subtotal": { "type": "number" },
+        "shippingCost": { "type": "number" },
+        "deliveryKm": { "type": "number" },
+        "deliveryDate": { "type": "string" },
+        "deliveryTime": { "type": "string" },
+        "deliveryAddress": { "type": "string" },
+        "type": { "type": "string", "enum": ["retail", "wholesale", "menudeo", "mayoreo"] },
         "paymentMethod": { "type": "string" },
-        "status": { "type": "string", "enum": ["paid", "pending"] },
+        "status": { "type": "string", "enum": ["paid", "pending", "scheduled"] },
         "sellerId": { "type": "string" }
       },
       "required": ["date", "items", "total", "status"]

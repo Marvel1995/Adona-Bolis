@@ -18,7 +18,9 @@ export default function RecipeManager() {
     name: '',
     baseType: 'agua',
     ingredients: [{ ingredientId: '', quantity: 0 }],
-    yieldLitros: 1
+    yieldLitros: 1,
+    priceRetail: 10,
+    priceWholesale: 8
   });
 
   useEffect(() => {
@@ -93,7 +95,7 @@ export default function RecipeManager() {
     setIsModalOpen(false);
     setIsEditMode(false);
     setEditingId(null);
-    setFormData({ name: '', baseType: 'agua', ingredients: [{ ingredientId: '', quantity: 0 }], yieldLitros: 1 });
+    setFormData({ name: '', baseType: 'agua', ingredients: [{ ingredientId: '', quantity: 0 }], yieldLitros: 1, priceRetail: 10, priceWholesale: 8 });
   };
 
   return (
@@ -181,7 +183,7 @@ export default function RecipeManager() {
               </div>
               
               <form onSubmit={handleSubmit} className="p-6 overflow-y-auto space-y-6">
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                   <Input label="Nombre de la Receta" value={formData.name} onChange={(v:any) => setFormData({...formData, name: v})} required />
                   <div className="space-y-1">
                     <label className="text-xs font-bold text-gray-500 uppercase ml-1">Base</label>
@@ -193,6 +195,26 @@ export default function RecipeManager() {
                         )}>{b}</button>
                       ))}
                     </div>
+                  </div>
+                  <Input label="Rendimiento (Lts)" type="number" value={formData.yieldLitros} onChange={(v:any) => setFormData({...formData, yieldLitros: Number(v)})} />
+                </div>
+
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="space-y-1">
+                    <label className="text-xs font-bold text-gray-500 uppercase ml-1">Precio Menudeo ($)</label>
+                    <input 
+                      type="number" step="0.5" value={formData.priceRetail} 
+                      onChange={e => setFormData({...formData, priceRetail: Number(e.target.value)})}
+                      className="w-full px-4 py-2.5 bg-gray-50 border-none rounded-xl focus:ring-2 focus:ring-blue-600 transition-all font-bold text-emerald-600"
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <label className="text-xs font-bold text-gray-500 uppercase ml-1">Precio Mayoreo ($)</label>
+                    <input 
+                      type="number" step="0.5" value={formData.priceWholesale} 
+                      onChange={e => setFormData({...formData, priceWholesale: Number(e.target.value)})}
+                      className="w-full px-4 py-2.5 bg-gray-50 border-none rounded-xl focus:ring-2 focus:ring-blue-600 transition-all font-bold text-indigo-600"
+                    />
                   </div>
                 </div>
 
@@ -232,21 +254,15 @@ export default function RecipeManager() {
                   ))}
                 </div>
 
-                <div className="bg-blue-50/50 p-6 rounded-2xl border border-blue-100 space-y-4">
-                   <div className="flex items-center gap-4">
-                      <div className="flex-1">
-                        <Input 
-                          label="Rendimiento Total (Litros)" 
-                          type="number" 
-                          value={formData.yieldLitros} 
-                          onChange={(v:any) => setFormData({...formData, yieldLitros: Number(v)})} 
-                        />
-                      </div>
-                      <div className="text-right">
-                        <p className="text-xs font-bold text-gray-400 uppercase">Costo Estimado</p>
-                        <p className="text-2xl font-bold text-blue-600">{formatCurrency(calculateCost(formData))}</p>
-                      </div>
-                   </div>
+                <div className="bg-blue-50/50 p-6 rounded-2xl border border-blue-100 flex items-center justify-between">
+                    <div className="flex flex-col">
+                       <span className="text-[10px] font-black text-blue-400 uppercase tracking-widest pl-1">Resumen</span>
+                       <span className="text-sm font-bold text-blue-800">Costo Base para {formData.yieldLitros} Lts</span>
+                    </div>
+                    <div className="text-right">
+                      <p className="text-xs font-bold text-gray-400 uppercase">Total Insumos</p>
+                      <p className="text-2xl font-bold text-blue-600">{formatCurrency(calculateCost(formData))}</p>
+                    </div>
                 </div>
 
                 <button className="w-full bg-blue-600 text-white font-bold py-4 rounded-2xl shadow-lg hover:shadow-xl active:scale-[0.98] transition-all">

@@ -11,6 +11,7 @@ import { motion } from 'motion/react';
 export default function FinanceManager() {
   const [expenses, setExpenses] = useState<any[]>([]);
   const [ingredients, setIngredients] = useState<any[]>([]);
+  const [sales, setSales] = useState<any[]>([]);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isEditMode, setIsEditMode] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -25,6 +26,7 @@ export default function FinanceManager() {
   useEffect(() => {
     onSnapshot(query(collection(db, 'expenses'), orderBy('date', 'desc')), snap => setExpenses(snap.docs.map(doc => ({ id: doc.id, ...doc.data() }))));
     onSnapshot(collection(db, 'ingredients'), snap => setIngredients(snap.docs.map(doc => ({ id: doc.id, ...doc.data() }))));
+    onSnapshot(collection(db, 'sales'), snap => setSales(snap.docs.map(doc => ({ id: doc.id, ...doc.data() }))));
   }, []);
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -107,7 +109,10 @@ export default function FinanceManager() {
     });
   };
 
+  const totalSales = sales.reduce((sum, s) => sum + (s.total || 0), 0);
   const totalExpenses = expenses.reduce((sum, e) => sum + e.amount, 0);
+  const netUtility = totalSales - totalExpenses;
+  const margin = totalSales > 0 ? (netUtility / totalSales) * 100 : 0;
 
   return (
     <div className="space-y-8">
@@ -178,12 +183,8 @@ export default function FinanceManager() {
             <h3 className="font-bold text-gray-900 mb-4">Calculadora de Utilidad</h3>
             <div className="space-y-4">
               <div className="flex justify-between items-center">
-                <span className="text-gray-500">Ventas (Pagado)</span>
-                <span className="text-green-600 font-bold">$45,000.00</span>
-              </div>
-              <div className="flex justify-between items-center">
-                <span className="text-gray-500">Costo Producción</span>
-                <span className="text-red-500 font-bold">-$12,500.00</span>
+                <span className="text-gray-500">Ingresos Totales (Ventas)</span>
+                <span className="text-green-600 font-bold">{formatCurrency(totalSales)}</span>
               </div>
               <div className="flex justify-between items-center">
                 <span className="text-gray-500">Gastos Registrados</span>
@@ -191,11 +192,16 @@ export default function FinanceManager() {
               </div>
               <div className="pt-4 border-t border-gray-100 flex justify-between items-end">
                 <div>
-                  <p className="text-xs font-bold text-gray-400 uppercase">Utilidad Estimada</p>
-                  <p className="text-2xl font-black text-blue-600">$24,900.00</p>
+                  <p className="text-xs font-bold text-gray-400 uppercase">Utilidad Real</p>
+                  <p className={cn("text-2xl font-black", netUtility >= 0 ? "text-blue-600" : "text-red-600")}>
+                    {formatCurrency(netUtility)}
+                  </p>
                 </div>
-                <div className="bg-green-100 text-green-700 px-2 py-1 rounded-lg text-[10px] font-black mb-1">
-                  MARGEN 55%
+                <div className={cn(
+                  "px-2 py-1 rounded-lg text-[10px] font-black mb-1",
+                  margin >= 0 ? "bg-green-100 text-green-700" : "bg-red-100 text-red-700"
+                )}>
+                  MARGEN {margin.toFixed(0)}%
                 </div>
               </div>
             </div>

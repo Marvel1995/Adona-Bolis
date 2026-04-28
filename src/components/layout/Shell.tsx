@@ -2,12 +2,12 @@ import React, { useState, useEffect } from 'react';
 import { 
   Menu, X, Home, Package, ShoppingCart, 
   Users, DollarSign, Settings as SettingsIcon, LogOut, ChevronRight,
-  Layers, ClipboardList, LayoutDashboard
+  Layers, ClipboardList, LayoutDashboard, Truck
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { auth, db } from '../../lib/firebase';
 import { signInWithPopup, GoogleAuthProvider, signOut, onAuthStateChanged } from 'firebase/auth';
-import { doc, getDoc, setDoc, updateDoc } from 'firebase/firestore';
+import { doc, getDoc, setDoc, updateDoc, onSnapshot, collection } from 'firebase/firestore';
 import { cn } from '../../lib/utils';
 
 interface NavItem {
@@ -23,6 +23,7 @@ const navItems: NavItem[] = [
   { id: 'recipes', label: 'Recetario', icon: ClipboardList, role: ['admin', 'production'] },
   { id: 'inventory', label: 'Inventario', icon: Package, role: ['admin', 'production', 'sales'] },
   { id: 'sales', label: 'Ventas', icon: ShoppingCart, role: ['admin', 'sales'] },
+  { id: 'orders', label: 'Pedidos', icon: Truck, role: ['admin', 'sales', 'production'] },
   { id: 'customers', label: 'Clientes', icon: Users, role: ['admin', 'sales'] },
   { id: 'finances', label: 'Gastos Fijos', icon: DollarSign, role: ['admin'] },
   { id: 'settings', label: 'Configuración', icon: SettingsIcon, role: ['admin'] },
@@ -79,6 +80,59 @@ export default function Shell({ children, activeTab, onTabChange }: { children: 
       }
     });
   }, []);
+
+  const [stats, setStats] = useState({
+    cajaHoy: 0,
+    metaMes: 0,
+    goal: 100000
+  });
+
+  useEffect(() => {
+    // Only fetch if user is logged in
+    if (!user) return;
+
+    const today = new Date().toISOString().split('T')[0];
+    const startOfMonth = new Date(new Date().getFullYear(), new Date().getMonth(), 1).toISOString().split('T')[0];
+
+    // Listen to Sales for "Caja Hoy" and "Meta Mes"
+    const unsubSales = onSnapshot(collection(db, 'sales'), (snap) => {
+      let todayTotal = 0;
+      let monthTotal = 0;
+
+      snap.docs.forEach(doc => {
+        const data = doc.data();
+        const saleDate = data.date || '';
+        const saleDay = saleDate.split('T')[0];
+        const amount = data.total || 0;
+        const isPaid = data.status === 'paid';
+
+        if (saleDay === today && isPaid) {
+          todayTotal += amount;
+        }
+        if (saleDay >= startOfMonth && isPaid) {
+          monthTotal += amount;
+        }
+      });
+
+      setStats(prev => ({
+        ...prev,
+        cajaHoy: todayTotal,
+        metaMes: monthTotal
+      }));
+    });
+
+    // Listen to Goal
+    const unsubGoal = onSnapshot(doc(db, 'settings', 'finance'), (snap) => {
+      if (snap.exists()) {
+        setStats(prev => ({ ...prev, goal: snap.data().monthlyGoal || 100000 }));
+      }
+    });
+
+    return () => {
+      unsubSales();
+      unsubGoal();
+    };
+  }, [user]);
 
   const login = () => {
     const provider = new GoogleAuthProvider();
@@ -197,12 +251,12 @@ export default function Shell({ children, activeTab, onTabChange }: { children: 
              <div className="hidden lg:flex items-center gap-8">
                 <div className="text-right">
                   <p className="text-[10px] text-slate-400 font-bold uppercase">Caja Hoy</p>
-                  <p className="text-sm font-bold text-emerald-600">$42,850.00</p>
+                  <p className="text-sm font-bold text-emerald-600">{new Intl.NumberFormat('es-MX', { style: 'currency', currency: 'MXN' }).format(stats.cajaHoy)}</p>
                 </div>
                 <div className="h-8 w-px bg-slate-100" />
                 <div className="text-right">
                   <p className="text-[10px] text-slate-400 font-bold uppercase">Meta Mes</p>
-                  <p className="text-sm font-bold text-slate-700">70%</p>
+                  <p className="text-sm font-bold text-slate-700">{Math.round((stats.metaMes / (stats.goal || 1)) * 100)}%</p>
                 </div>
              </div>
           </div>

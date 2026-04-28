@@ -1,7 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { 
   ShoppingCart, Plus, Search, User, CreditCard, 
-  FileText, Download, TrendingUp, AlertCircle, Trash2
+  FileText, Download, TrendingUp, AlertCircle, Trash2,
+  Clock, MapPin
 } from 'lucide-react';
 import { collection, onSnapshot, addDoc, query, orderBy, doc, increment, runTransaction, getDoc } from 'firebase/firestore';
 import { db, handleFirestoreError, OperationType } from '../../lib/firebase';
@@ -23,7 +24,10 @@ export default function SalesManager() {
     items: [], // [{ productId, flavor, quantity, price }]
     status: 'paid',
     paymentMethod: 'efectivo',
-    deliveryKm: 0
+    deliveryKm: 0,
+    deliveryDate: new Date().toISOString().split('T')[0],
+    deliveryTime: '',
+    deliveryAddress: ''
   });
   const [kmCost, setKmCost] = useState(0);
 
@@ -65,6 +69,9 @@ export default function SalesManager() {
 
   const handleSubmit = async () => {
     if (newSale.items.length === 0) return alert('La venta está vacía');
+    if (newSale.status === 'scheduled' && !newSale.customerId) return alert('Para agendar es obligatorio asignar un cliente');
+    if (newSale.status === 'scheduled' && (!newSale.deliveryTime || !newSale.deliveryAddress)) return alert('Para agendar ingresa horario y dirección');
+    
     const customer = customers.find(c => c.id === newSale.customerId);
     
     // Aggregate items by productId to avoid duplicate reads/writes
@@ -105,8 +112,8 @@ export default function SalesManager() {
           transaction.update(data.ref, { stock: currentStock - data.item.quantity });
         }
 
-        // Update customer balance if pending
-        if (newSale.status === 'pending' && customerRef && customerDoc?.exists()) {
+        // Update customer balance if pending or scheduled
+        if ((newSale.status === 'pending' || newSale.status === 'scheduled') && customerRef && customerDoc?.exists()) {
           const currentBalance = Number(customerDoc.data()?.balance || 0);
           transaction.update(customerRef, { balance: currentBalance + totalSale });
         }
@@ -116,6 +123,7 @@ export default function SalesManager() {
         transaction.set(saleRef, {
           ...newSale,
           customerName: customer?.name || 'Venta de Mostrador',
+          customerPhone: customer?.phone || '',
           subtotal: subtotal,
           shippingCost: shippingCost,
           total: totalSale,
@@ -125,8 +133,17 @@ export default function SalesManager() {
       });
 
       setIsModalOpen(false);
-      setNewSale({ customerId: '', items: [], status: 'paid', paymentMethod: 'efectivo', deliveryKm: 0 });
-      alert('Venta registrada con éxito.');
+      setNewSale({ 
+        customerId: '', 
+        items: [], 
+        status: 'paid', 
+        paymentMethod: 'efectivo', 
+        deliveryKm: 0,
+        deliveryDate: new Date().toISOString().split('T')[0],
+        deliveryTime: '',
+        deliveryAddress: ''
+      });
+      alert('Operación registrada con éxito.');
     } catch (err: any) {
       handleFirestoreError(err, OperationType.WRITE, 'sales/transaction');
     }
@@ -188,7 +205,7 @@ export default function SalesManager() {
 
         let customerRef = null;
         let customerDoc = null;
-        if (sale.status === 'pending' && sale.customerId) {
+        if ((sale.status === 'pending' || sale.status === 'scheduled') && sale.customerId) {
           customerRef = doc(db, 'customers', sale.customerId);
           customerDoc = await transaction.get(customerRef);
         }
@@ -240,7 +257,7 @@ export default function SalesManager() {
               <tr className="bg-gray-50 text-gray-400 text-xs uppercase tracking-wider">
                 <th className="px-6 py-4">ID / Fecha</th>
                 <th className="px-6 py-4">Cliente</th>
-                <th className="px-6 py-4">Monto</th>
+                <th className="px-6 py-4">Monto / Pago</th>
                 <th className="px-6 py-4">Estado</th>
                 <th className="px-6 py-4">Acciones</th>
               </tr>
@@ -254,14 +271,17 @@ export default function SalesManager() {
                   </td>
                   <td className="px-6 py-4 font-semibold text-gray-800">{sale.customerName}</td>
                   <td className="px-6 py-4">
-                    <span className="font-bold text-gray-900">{formatCurrency(sale.total)}</span>
+                    <p className="font-bold text-gray-900">{formatCurrency(sale.total)}</p>
+                    <p className="text-[10px] font-bold text-gray-400 uppercase">{sale.paymentMethod || 'efectivo'}</p>
                   </td>
                   <td className="px-6 py-4">
                     <span className={cn(
                       "px-2 py-1 rounded-full text-[10px] font-bold uppercase",
-                      sale.status === 'paid' ? "bg-green-50 text-green-600" : "bg-red-50 text-red-600"
+                      sale.status === 'paid' ? "bg-green-50 text-green-600" : 
+                      sale.status === 'scheduled' ? "bg-amber-50 text-amber-600" : 
+                      "bg-red-50 text-red-600"
                     )}>
-                      {sale.status === 'paid' ? 'Pagado' : 'Pendiente'}
+                      {sale.status === 'paid' ? 'Pagado' : sale.status === 'scheduled' ? 'Agendado' : 'Pendiente'}
                     </span>
                   </td>
                   <td className="px-6 py-4">
@@ -346,42 +366,119 @@ export default function SalesManager() {
                 </div>
 
                 <div className="space-y-4 pt-4 border-t border-gray-200">
-                  <div className="grid grid-cols-2 gap-2">
+                  <div className="bg-white p-4 rounded-2xl border border-slate-100 shadow-sm space-y-3">
+                    <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Tipo de Orden</p>
+                    <div className="grid grid-cols-2 gap-2">
+                      <button 
+                        onClick={() => setNewSale({...newSale, status: 'paid'})} 
+                        className={cn(
+                          "py-3 rounded-xl text-xs font-bold border transition-all flex flex-col items-center gap-1",
+                          newSale.status !== 'scheduled' ? "bg-blue-600 border-blue-600 text-white shadow-md" : "bg-white border-slate-200 text-slate-400 hover:border-blue-200"
+                        )}
+                      >
+                        <CreditCard className="w-4 h-4" />
+                        Venta Inmediata
+                      </button>
+                      <button 
+                        onClick={() => setNewSale({...newSale, status: 'scheduled', paymentMethod: 'pendiente'})} 
+                        className={cn(
+                          "py-3 rounded-xl text-xs font-bold border transition-all flex flex-col items-center gap-1",
+                          newSale.status === 'scheduled' ? "bg-amber-500 border-amber-500 text-white shadow-md" : "bg-white border-slate-200 text-slate-400 hover:border-amber-200"
+                        )}
+                      >
+                        <Clock className="w-4 h-4" />
+                        Agendar Pedido
+                      </button>
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-1 gap-3">
                     <div className="space-y-1">
-                      <label className="text-[10px] font-bold text-gray-400 uppercase">Cliente</label>
+                      <label className={cn("text-[10px] font-bold uppercase", newSale.status === 'scheduled' ? "text-amber-600" : "text-gray-400")}>
+                        Cliente {newSale.status === 'scheduled' && <span className="text-red-500">*</span>}
+                      </label>
                       <select 
                         value={newSale.customerId} 
                         onChange={e => setNewSale({...newSale, customerId: e.target.value})}
-                        className="w-full bg-white rounded-lg border border-gray-200 text-xs font-semibold p-2"
+                        className="w-full bg-white rounded-xl border border-gray-200 text-xs font-semibold p-3 focus:ring-2 focus:ring-blue-600 transition-all"
                       >
-                        <option value="">Venta General</option>
+                        <option value="">{newSale.status === 'scheduled' ? 'Seleccionar Cliente...' : 'Venta General'}</option>
                         {customers.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
                       </select>
                     </div>
 
+                    {newSale.status !== 'scheduled' ? (
+                      <div className="space-y-2">
+                        <label className="text-[10px] font-bold text-gray-400 uppercase">Método de Pago</label>
+                        <div className="grid grid-cols-3 gap-2">
+                          <button 
+                            onClick={() => setNewSale({...newSale, status: 'paid', paymentMethod: 'efectivo'})} 
+                            className={cn(
+                              "py-2 rounded-xl text-[10px] font-bold border transition-all",
+                              newSale.status === 'paid' && newSale.paymentMethod === 'efectivo' ? "bg-white border-green-200 text-green-600 shadow-sm" : "border-gray-200 text-gray-400 hover:bg-white"
+                            )}
+                          >Efectivo</button>
+                          <button 
+                            onClick={() => setNewSale({...newSale, status: 'paid', paymentMethod: 'tarjeta'})} 
+                            className={cn(
+                              "py-2 rounded-xl text-[10px] font-bold border transition-all",
+                              newSale.status === 'paid' && newSale.paymentMethod === 'tarjeta' ? "bg-white border-blue-200 text-blue-600 shadow-sm" : "border-gray-200 text-gray-400 hover:bg-white"
+                            )}
+                          >Tarjeta</button>
+                          <button 
+                            onClick={() => setNewSale({...newSale, status: 'pending', paymentMethod: 'pendiente'})} 
+                            className={cn(
+                              "py-2 rounded-xl text-[10px] font-bold border transition-all",
+                              newSale.status === 'pending' ? "bg-white border-red-200 text-red-600 shadow-sm" : "border-gray-200 text-gray-400 hover:bg-white"
+                            )}
+                          >Fiado</button>
+                        </div>
+                      </div>
+                    ) : (
+                      <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="space-y-3 bg-amber-50/50 p-4 rounded-2xl border border-amber-100">
+                        <div className="grid grid-cols-2 gap-2">
+                          <div className="space-y-1">
+                            <label className="text-[10px] font-bold text-amber-600 uppercase">Fecha <span className="text-red-500">*</span></label>
+                            <input 
+                              type="date"
+                              value={newSale.deliveryDate}
+                              onChange={e => setNewSale({...newSale, deliveryDate: e.target.value})}
+                              className="w-full bg-white rounded-lg border border-amber-100 text-xs font-semibold p-2"
+                            />
+                          </div>
+                          <div className="space-y-1">
+                            <label className="text-[10px] font-bold text-amber-600 uppercase">Horario <span className="text-red-500">*</span></label>
+                            <input 
+                              type="text"
+                              placeholder="Ej: 3:00 PM"
+                              value={newSale.deliveryTime}
+                              onChange={e => setNewSale({...newSale, deliveryTime: e.target.value})}
+                              className="w-full bg-white rounded-lg border border-amber-100 text-xs font-semibold p-2"
+                            />
+                          </div>
+                        </div>
+                        <div className="space-y-1">
+                          <label className="text-[10px] font-bold text-amber-600 uppercase">Dirección de Entrega <span className="text-red-500">*</span></label>
+                          <textarea 
+                            placeholder="Calle, número, colonia..."
+                            rows={2}
+                            value={newSale.deliveryAddress}
+                            onChange={e => setNewSale({...newSale, deliveryAddress: e.target.value})}
+                            className="w-full bg-white rounded-lg border border-amber-100 text-xs font-semibold p-2 resize-none"
+                          />
+                        </div>
+                      </motion.div>
+                    )}
+
                     <div className="space-y-1">
-                      <label className="text-[10px] font-bold text-gray-400 uppercase">Km Entrega</label>
+                      <label className="text-[10px] font-bold text-gray-400 uppercase">Km Entrega (Opcional)</label>
                       <input 
                         type="number"
                         placeholder="0 km"
                         value={newSale.deliveryKm || ''}
                         onChange={e => setNewSale({...newSale, deliveryKm: Number(e.target.value)})}
-                        className="w-full bg-white rounded-lg border border-gray-200 text-xs font-semibold p-2"
+                        className="w-full bg-white rounded-xl border border-gray-200 text-xs font-semibold p-2.5"
                       />
-                    </div>
-                  </div>
-
-                  <div className="space-y-2">
-                    <label className="text-[10px] font-bold text-gray-400 uppercase">Estado Pago</label>
-                    <div className="flex gap-2">
-                      <button onClick={() => setNewSale({...newSale, status: 'paid'})} className={cn(
-                        "flex-1 py-2 rounded-xl text-xs font-bold border",
-                        newSale.status === 'paid' ? "bg-white border-green-200 text-green-600 shadow-sm" : "border-gray-200 text-gray-400"
-                      )}>Pagado</button>
-                      <button onClick={() => setNewSale({...newSale, status: 'pending'})} className={cn(
-                        "flex-1 py-2 rounded-xl text-xs font-bold border",
-                        newSale.status === 'pending' ? "bg-white border-red-200 text-red-600 shadow-sm" : "border-gray-200 text-gray-400"
-                      )}>Fiado</button>
                     </div>
                   </div>
 

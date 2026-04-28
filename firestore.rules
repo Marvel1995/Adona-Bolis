@@ -31,7 +31,9 @@ service cloud.firestore {
       return data.name is string && data.name.size() > 0
           && data.baseType in ['agua', 'leche']
           && data.ingredients is list
-          && data.yieldLitros is number && data.yieldLitros > 0;
+          && data.yieldLitros is number && data.yieldLitros > 0
+          && (data.get('priceRetail', 0) is number)
+          && (data.get('priceWholesale', 0) is number);
     }
 
     function isValidProduct(data) {
@@ -43,8 +45,12 @@ service cloud.firestore {
 
     function isValidSale(data) {
       return data.total is number && data.total >= 0
-          && data.status in ['paid', 'pending']
-          && data.items is list;
+          && data.status in ['paid', 'pending', 'scheduled']
+          && data.items is list
+          && (data.get('deliveryDate', '') is string)
+          && (data.get('deliveryTime', '') is string)
+          && (data.get('deliveryAddress', '') is string)
+          && (data.get('customerName', '') is string);
     }
 
     // -------------------------------------------------------------------------
