@@ -21,10 +21,14 @@ export default function Dashboard() {
     reorderCount: 0,
     goal: 100000,
     mlPerBolis: 200,
+    priceRetail: 10,
+    priceWholesale: 8,
     avgUnitCost: 0,
     avgPrice: 0,
-    avgProfit: 0,
-    avgMargin: 0
+    avgProfitRetail: 0,
+    avgProfitWholesale: 0,
+    avgMarginRetail: 0,
+    avgMarginWholesale: 0
   });
 
   const [topProducts, setTopProducts] = useState<any[]>([]);
@@ -110,7 +114,9 @@ export default function Dashboard() {
       if (goalDoc.exists()) {
         const monthlyGoal = goalDoc.data().monthlyGoal || 100000;
         const mlPerBolis = goalDoc.data().mlPerBolis || 200;
-        setStats(prev => ({ ...prev, goal: monthlyGoal, mlPerBolis }));
+        const priceRetail = goalDoc.data().priceRetail || 10;
+        const priceWholesale = goalDoc.data().priceWholesale || 8;
+        setStats(prev => ({ ...prev, goal: monthlyGoal, mlPerBolis, priceRetail, priceWholesale }));
       }
     });
 
@@ -143,20 +149,22 @@ export default function Dashboard() {
     // Cost per Unit (Bolis)
     const avgUnitCost = (avgCostPerLiter / 1000) * stats.mlPerBolis;
 
-    // Average Price (weighted by sales if possible, or simple avg)
-    const avgPrice = products.reduce((sum, p) => sum + ((p.priceWholesale + p.priceRetail) / 2), 0) / (products.length || 1);
-
-    const avgProfit = avgPrice - avgUnitCost;
-    const avgMargin = (avgProfit / (avgPrice || 1)) * 100;
+    // Use Global Settings for Profit Calculation
+    const avgProfitRetail = stats.priceRetail - avgUnitCost;
+    const avgProfitWholesale = stats.priceWholesale - avgUnitCost;
+    
+    const avgMarginRetail = (avgProfitRetail / (stats.priceRetail || 1)) * 100;
+    const avgMarginWholesale = (avgProfitWholesale / (stats.priceWholesale || 1)) * 100;
 
     setStats(prev => ({
       ...prev,
       avgUnitCost,
-      avgPrice,
-      avgProfit,
-      avgMargin
+      avgProfitRetail,
+      avgProfitWholesale,
+      avgMarginRetail,
+      avgMarginWholesale
     }));
-  }, [recipes, ingredients, products, stats.mlPerBolis]);
+  }, [recipes, ingredients, products, stats.mlPerBolis, stats.priceRetail, stats.priceWholesale]);
 
   // Effect to handle cash calculation when both sales and expenses change
   useEffect(() => {
@@ -207,9 +215,9 @@ export default function Dashboard() {
               <TrendingUp className="w-7 h-7" />
            </div>
            <div>
-             <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest leading-none mb-1">Ganancia Unitaria</p>
-             <p className="text-2xl font-black text-slate-900 leading-none">{formatCurrency(stats.avgProfit)}</p>
-             <p className="text-[10px] font-bold text-emerald-600 mt-1">ESTIMADO NETO</p>
+             <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest leading-none mb-1">Ganan. Menudeo</p>
+             <p className="text-2xl font-black text-slate-900 leading-none">{formatCurrency(stats.avgProfitRetail)}</p>
+             <p className="text-[10px] font-bold text-emerald-600 mt-1">{stats.avgMarginRetail.toFixed(0)}% MARGEN</p>
            </div>
         </div>
         <div className="bg-white p-6 rounded-3xl border border-indigo-100 shadow-sm flex items-center gap-5">
@@ -217,9 +225,9 @@ export default function Dashboard() {
               <CheckCircle2 className="w-7 h-7" />
            </div>
            <div>
-             <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest leading-none mb-1">Margen de Utilidad</p>
-             <p className="text-2xl font-black text-slate-900 leading-none">{stats.avgMargin.toFixed(1)}%</p>
-             <p className="text-[10px] font-bold text-indigo-600 mt-1">RENDIMIENTO</p>
+             <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest leading-none mb-1">Ganan. Mayoreo</p>
+             <p className="text-2xl font-black text-slate-900 leading-none">{formatCurrency(stats.avgProfitWholesale)}</p>
+             <p className="text-[10px] font-bold text-indigo-600 mt-1">{stats.avgMarginWholesale.toFixed(0)}% MARGEN</p>
            </div>
         </div>
       </div>
