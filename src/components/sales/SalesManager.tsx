@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { 
-  ShoppingCart, Plus, Search, User, CreditCard, 
+  ShoppingCart, Plus, Minus, Search, User, CreditCard, 
   FileText, Download, TrendingUp, AlertCircle, Trash2,
   Clock, MapPin
 } from 'lucide-react';
@@ -65,6 +65,17 @@ export default function SalesManager() {
 
   const removeItemFromSale = (productId: string) => {
     setNewSale({ ...newSale, items: newSale.items.filter((i: any) => i.productId !== productId) });
+  };
+
+  const updateItemQuantity = (productId: string, delta: number) => {
+    setNewSale({
+      ...newSale,
+      items: newSale.items.map((i: any) => 
+        i.productId === productId 
+          ? { ...i, quantity: Math.max(1, i.quantity + delta) } 
+          : i
+      )
+    });
   };
 
   const handleSubmit = async () => {
@@ -345,19 +356,41 @@ export default function SalesManager() {
               </div>
 
               {/* Cart Side */}
-              <div className="w-full md:w-80 bg-gray-50 p-6 flex flex-col">
-                <div className="flex-1 overflow-y-auto mb-6">
+              <div className="w-full md:w-96 bg-gray-50 p-6 flex flex-col overflow-y-auto border-l border-gray-100">
+                <div className="mb-6">
                   <h4 className="font-bold text-gray-500 uppercase text-[10px] tracking-widest mb-4">Carrito de Venta</h4>
                   <div className="space-y-3">
                     {newSale.items.map((item: any) => (
-                      <div key={item.productId} className="flex justify-between items-center group">
-                        <div>
-                          <p className="font-bold text-sm text-gray-800">{item.flavor}</p>
-                          <p className="text-xs text-gray-400">{item.quantity} x {formatCurrency(item.price)}</p>
+                      <div key={item.productId} className="bg-white p-3 rounded-xl border border-gray-100 group">
+                        <div className="flex justify-between items-start mb-2">
+                          <div>
+                            <p className="font-bold text-sm text-gray-800 leading-tight">{item.flavor}</p>
+                            <p className="text-[10px] text-gray-400 font-bold uppercase">{formatCurrency(item.price)} c/u</p>
+                          </div>
+                          <button 
+                            onClick={() => removeItemFromSale(item.productId)}
+                            className="p-1 text-slate-300 hover:text-rose-600 transition-colors"
+                          >
+                            <Trash2 className="w-3 h-3" />
+                          </button>
                         </div>
-                        <div className="flex items-center gap-2">
-                          <span className="font-bold text-sm">{formatCurrency(item.price * item.quantity)}</span>
-                          <button onClick={() => removeItemFromSale(item.productId)} className="p-1 text-red-300 hover:text-red-600"><Trash2 className="w-3 h-3" /></button>
+                        <div className="flex items-center justify-between">
+                          <div className="flex items-center gap-2 bg-gray-50 rounded-lg p-1">
+                            <button 
+                              onClick={() => updateItemQuantity(item.productId, -1)}
+                              className="p-1 hover:bg-white rounded shadow-sm text-gray-500 transition-all"
+                            >
+                              <Minus className="w-3 h-3" />
+                            </button>
+                            <span className="text-xs font-black w-6 text-center">{item.quantity}</span>
+                            <button 
+                              onClick={() => updateItemQuantity(item.productId, 1)}
+                              className="p-1 hover:bg-white rounded shadow-sm text-gray-500 transition-all"
+                            >
+                              <Plus className="w-3 h-3" />
+                            </button>
+                          </div>
+                          <span className="font-black text-sm text-blue-600">{formatCurrency(item.price * item.quantity)}</span>
                         </div>
                       </div>
                     ))}
