@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { 
   Menu, X, Home, Package, ShoppingCart, 
   Users, DollarSign, Settings as SettingsIcon, LogOut, ChevronRight,
-  Layers, ClipboardList, LayoutDashboard, Truck
+  Layers, ClipboardList, LayoutDashboard, Truck, Cloud, Heart
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { auth, db } from '../../lib/firebase';
@@ -24,6 +24,8 @@ const navItems: NavItem[] = [
   { id: 'sales', label: 'Ventas', icon: ShoppingCart },
   { id: 'orders', label: 'Pedidos', icon: Truck },
   { id: 'customers', label: 'Clientes', icon: Users },
+  { id: 'weather', label: 'Clima', icon: Cloud },
+  { id: 'tithing', label: 'Diezmo', icon: Heart },
   { id: 'finances', label: 'Egresos', icon: DollarSign },
   { id: 'settings', label: 'Configuración', icon: SettingsIcon },
 ];

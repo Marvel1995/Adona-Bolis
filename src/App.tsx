@@ -14,6 +14,8 @@ import FinanceManager from './components/finances/FinanceManager';
 import CustomerManager from './components/customers/CustomerManager';
 import SettingsManager from './components/settings/SettingsManager';
 import OrderManager from './components/orders/OrderManager';
+import WeatherManager from './components/weather/WeatherManager';
+import TithingManager from './components/tithing/TithingManager';
 
 export default function App() {
   const [activeTab, setActiveTab] = useState('dashboard');
@@ -28,6 +30,8 @@ export default function App() {
       case 'orders': return <OrderManager />;
       case 'finances': return <FinanceManager />;
       case 'customers': return <CustomerManager />;
+      case 'weather': return <WeatherManager />;
+      case 'tithing': return <TithingManager />;
       case 'settings': return <SettingsManager />;
       default: return <Dashboard />;
     }

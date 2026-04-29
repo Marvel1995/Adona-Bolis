@@ -669,11 +669,11 @@ export default function Dashboard() {
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-        <div className="bg-white p-8 rounded-3xl border border-slate-200">
+        <div className="bg-white p-8 rounded-3xl border border-slate-200 shadow-sm">
           <h3 className="text-xl font-bold mb-8">Productos Top</h3>
           <div className="space-y-4">
             {topProducts.map(p => (
-              <div key={p.name} className="flex items-center justify-between p-4 bg-slate-50 rounded-2xl">
+              <div key={p.name} className="flex items-center justify-between p-4 bg-slate-50 rounded-2xl transition-all hover:bg-slate-100">
                 <div className="flex items-center gap-4">
                    <div className="w-10 h-10 bg-white rounded-xl flex items-center justify-center font-bold text-slate-900 shadow-sm uppercase">{p.name.charAt(0)}</div>
                    <div>
@@ -688,11 +688,17 @@ export default function Dashboard() {
           </div>
         </div>
 
-        <div className="bg-white p-8 rounded-3xl border border-slate-200">
+        <div className="bg-white p-8 rounded-3xl border border-slate-200 shadow-sm">
           <h3 className="text-xl font-bold mb-8">Alertas del Sistema</h3>
           <div className="space-y-4">
             <ActionItem icon={AlertTriangle} title={stats.reorderCount > 0 ? "Bajo Stock Insulado" : "Stock Saludable"} desc={`${stats.reorderCount} insumos por debajo del punto de reorden.`} type={stats.reorderCount > 0 ? "danger" : "success"} />
             <ActionItem icon={CheckCircle2} title="Sistema Sincronizado" desc="Todos los movimientos han sido procesados correctamente." type="success" />
+            <div className="p-6 bg-blue-50 rounded-2xl border border-blue-100 flex flex-col gap-2 mt-4">
+              <span className="text-[10px] font-black text-blue-600 uppercase tracking-widest">Consejo del Día</span>
+              <p className="text-[11px] font-bold text-blue-800 leading-relaxed italic">
+                "Mantén un seguimiento cercano de los egresos fijos para asegurar que el punto de equilibrio se alcance en la primera quincena."
+              </p>
+            </div>
           </div>
         </div>
       </div>
