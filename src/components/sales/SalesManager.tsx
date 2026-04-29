@@ -17,6 +17,7 @@ export default function SalesManager() {
   const [customers, setCustomers] = useState<any[]>([]);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [saleType, setSaleType] = useState<'menudeo' | 'mayoreo'>('menudeo');
+  const [wholesaleThreshold, setWholesaleThreshold] = useState(10);
 
   // New Sale State
   const [newSale, setNewSale] = useState<any>({
@@ -38,44 +39,98 @@ export default function SalesManager() {
     
     const fetchConfig = async () => {
       const docSnap = await getDoc(doc(db, 'settings', 'finance'));
-      if (docSnap.exists()) setKmCost(docSnap.data().kmCost || 0);
+      if (docSnap.exists()) {
+        setKmCost(docSnap.data().kmCost || 0);
+        setWholesaleThreshold(docSnap.data().wholesaleThreshold || 10);
+      }
     };
     fetchConfig();
   }, []);
 
   const subtotal = newSale.items.reduce((sum: number, item: any) => sum + (item.price * item.quantity), 0);
+  const totalQuantity = newSale.items.reduce((sum: number, item: any) => sum + item.quantity, 0);
   const shippingCost = (newSale.deliveryKm || 0) * kmCost;
   const totalSale = subtotal + shippingCost;
+
+  const applyPricingRules = (items: any[], type: 'menudeo' | 'mayoreo') => {
+    return items.map(item => {
+      const prod = products.find(p => p.id === item.productId);
+      if (!prod) return item;
+      return {
+        ...item,
+        price: type === 'mayoreo' ? prod.priceWholesale : prod.priceRetail
+      };
+    });
+  };
 
   const addItemToSale = (productId: string) => {
     const prod = products.find(p => p.id === productId);
     if (!prod) return;
-    const price = saleType === 'mayoreo' ? prod.priceWholesale : prod.priceRetail;
-    const existing = newSale.items.find((i: any) => i.productId === productId);
     
-    if (existing) {
-      const newItems = newSale.items.map((i: any) => 
-        i.productId === productId ? { ...i, quantity: i.quantity + 1 } : i
-      );
-      setNewSale({ ...newSale, items: newItems });
+    let updatedItems = [...newSale.items];
+    const existingIndex = updatedItems.findIndex((i: any) => i.productId === productId);
+    
+    if (existingIndex > -1) {
+      updatedItems[existingIndex] = { 
+        ...updatedItems[existingIndex], 
+        quantity: updatedItems[existingIndex].quantity + 1 
+      };
     } else {
-      setNewSale({ ...newSale, items: [...newSale.items, { productId, flavor: prod.flavor, quantity: 1, price }] });
+      updatedItems.push({ 
+        productId, 
+        flavor: prod.flavor, 
+        quantity: 1, 
+        price: saleType === 'mayoreo' ? prod.priceWholesale : prod.priceRetail 
+      });
     }
+
+    // Auto-detect type
+    const newTotalQty = updatedItems.reduce((sum, i) => sum + i.quantity, 0);
+    const newType = newTotalQty >= wholesaleThreshold ? 'mayoreo' : 'menudeo';
+    
+    if (newType !== saleType) {
+      setSaleType(newType);
+      updatedItems = applyPricingRules(updatedItems, newType);
+    } else {
+      // Even if type didn't change, ensure the added item has the correct price relative to current type
+      updatedItems = applyPricingRules(updatedItems, saleType);
+    }
+
+    setNewSale({ ...newSale, items: updatedItems });
   };
 
   const removeItemFromSale = (productId: string) => {
-    setNewSale({ ...newSale, items: newSale.items.filter((i: any) => i.productId !== productId) });
+    let updatedItems = newSale.items.filter((i: any) => i.productId !== productId);
+    
+    const newTotalQty = updatedItems.reduce((sum, i) => sum + i.quantity, 0);
+    const newType = newTotalQty >= wholesaleThreshold ? 'mayoreo' : 'menudeo';
+    
+    if (newType !== saleType) {
+      setSaleType(newType);
+      updatedItems = applyPricingRules(updatedItems, newType);
+    }
+
+    setNewSale({ ...newSale, items: updatedItems });
   };
 
   const updateItemQuantity = (productId: string, delta: number) => {
-    setNewSale({
-      ...newSale,
-      items: newSale.items.map((i: any) => 
-        i.productId === productId 
-          ? { ...i, quantity: Math.max(1, i.quantity + delta) } 
-          : i
-      )
-    });
+    let updatedItems = newSale.items.map((i: any) => 
+      i.productId === productId 
+        ? { ...i, quantity: Math.max(1, i.quantity + delta) } 
+        : i
+    );
+
+    const newTotalQty = updatedItems.reduce((sum, i) => sum + i.quantity, 0);
+    const newType = newTotalQty >= wholesaleThreshold ? 'mayoreo' : 'menudeo';
+    
+    if (newType !== saleType) {
+      setSaleType(newType);
+      updatedItems = applyPricingRules(updatedItems, newType);
+    } else {
+      updatedItems = applyPricingRules(updatedItems, saleType);
+    }
+
+    setNewSale({ ...newSale, items: updatedItems });
   };
 
   const handleSubmit = async () => {
@@ -423,12 +478,13 @@ export default function SalesManager() {
                  <div className="flex items-center justify-between mb-6">
                     <h3 className="text-xl font-bold">Nueva Venta</h3>
                     <div className="flex p-1 bg-gray-100 rounded-xl">
-                      {['menudeo', 'mayoreo'].map(t => (
-                        <button key={t} onClick={() => setSaleType(t as any)} className={cn(
-                          "px-4 py-1.5 rounded-lg text-xs font-bold transition-all capitalize",
-                          saleType === t ? "bg-white shadow-sm text-blue-600" : "text-gray-500"
-                        )}>{t}</button>
-                      ))}
+                      <div className={cn(
+                        "px-4 py-1.5 rounded-lg text-[10px] font-black transition-all capitalize flex items-center gap-2",
+                        saleType === 'mayoreo' ? "bg-amber-100 text-amber-700 shadow-sm" : "bg-blue-100 text-blue-700 shadow-sm"
+                      )}>
+                        {saleType === 'mayoreo' ? <TrendingUp className="w-3 h-3" /> : <User className="w-3 h-3" />}
+                        MODO {saleType.toUpperCase()} {saleType === 'mayoreo' ? '(MAYOREO)' : '(DETALLE)'}
+                      </div>
                     </div>
                  </div>
 
@@ -455,7 +511,17 @@ export default function SalesManager() {
               {/* Cart Side */}
               <div className="w-full md:w-96 bg-gray-50 p-6 flex flex-col overflow-y-auto border-l border-gray-100">
                 <div className="mb-6">
-                  <h4 className="font-bold text-gray-500 uppercase text-[10px] tracking-widest mb-4">Carrito de Venta</h4>
+                  <div className="flex items-center justify-between mb-4">
+                    <h4 className="font-black text-gray-500 uppercase text-[10px] tracking-widest">Carrito de Venta</h4>
+                    <div className="flex items-center gap-2">
+                       <span className="text-[10px] font-black text-slate-400 uppercase">{totalQuantity} piezas</span>
+                       {totalQuantity < wholesaleThreshold && (
+                         <span className="text-[9px] font-bold text-blue-500 bg-blue-50 px-2 py-0.5 rounded-full border border-blue-100">
+                           {wholesaleThreshold - totalQuantity} para Mayoreo
+                         </span>
+                       )}
+                    </div>
+                  </div>
                   <div className="space-y-3">
                     {newSale.items.map((item: any) => (
                       <div key={item.productId} className="bg-white p-3 rounded-xl border border-gray-100 group">

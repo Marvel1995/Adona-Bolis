@@ -181,7 +181,7 @@ export default function Shell({ children, activeTab, onTabChange }: { children: 
         animate={{ width: isSidebarOpen ? '260px' : '0px' }}
         className="bg-slate-900 text-slate-300 flex flex-col border-r border-slate-800 shadow-2xl z-30 transition-all overflow-hidden"
       >
-        <div className="p-6 shrink-0">
+        <div className="flex-1 overflow-y-auto p-6 custom-scrollbar">
           <div className="flex items-center space-x-3 mb-10">
             <div className="w-8 h-8 bg-blue-600 rounded-lg flex items-center justify-center font-bold text-white shadow-lg">B</div>
             <span className="text-lg font-bold text-white tracking-tight">Panel <span className="text-blue-500 underline decoration-2 underline-offset-4">Adonaí</span></span>
@@ -197,14 +197,14 @@ export default function Shell({ children, activeTab, onTabChange }: { children: 
                   key={item.id}
                   onClick={() => onTabChange(item.id)}
                   className={cn(
-                    "w-full flex items-center gap-3 px-3 py-3 rounded-lg transition-all group relative",
+                    "w-full flex items-center gap-3 px-3 py-3 rounded-lg transition-all group relative text-left",
                     isActive 
                       ? "bg-blue-600 text-white font-bold shadow-md border-r-4 border-blue-400" 
-                      : "hover:bg-slate-800 hover:text-white"
+                      : "hover:bg-slate-800 hover:text-white text-slate-400"
                   )}
                 >
-                  <Icon className={cn("w-5 h-5 opacity-80", isActive ? "opacity-100" : "group-hover:opacity-100")} />
-                  <span className="text-sm">{item.label}</span>
+                  <Icon className={cn("w-5 h-5 shrink-0", isActive ? "opacity-100" : "group-hover:opacity-100")} />
+                  <span className="text-sm truncate">{item.label}</span>
                 </button>
               );
             })}

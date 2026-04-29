@@ -9,6 +9,7 @@ export default function SettingsManager() {
   const [goal, setGoal] = useState<number>(100000);
   const [kmCost, setKmCost] = useState<number>(0);
   const [mlPerBolis, setMlPerBolis] = useState<number>(200);
+  const [wholesaleThreshold, setWholesaleThreshold] = useState<number>(10);
   const [recipes, setRecipes] = useState<any[]>([]);
   const [isSaving, setIsSaving] = useState(false);
 
@@ -39,6 +40,7 @@ export default function SettingsManager() {
         setGoal(docSnap.data().monthlyGoal || 100000);
         setKmCost(docSnap.data().kmCost || 0);
         setMlPerBolis(docSnap.data().mlPerBolis || 200);
+        setWholesaleThreshold(docSnap.data().wholesaleThreshold || 10);
       }
     };
     fetchGoal();
@@ -85,7 +87,8 @@ export default function SettingsManager() {
       await setDoc(doc(db, 'settings', 'finance'), { 
         monthlyGoal: Number(goal),
         kmCost: Number(kmCost),
-        mlPerBolis: Number(mlPerBolis)
+        mlPerBolis: Number(mlPerBolis),
+        wholesaleThreshold: Number(wholesaleThreshold)
       }, { merge: true });
       alert('Configuración guardada correctamente');
     } finally {
@@ -144,6 +147,19 @@ export default function SettingsManager() {
                   className="w-full text-2xl font-black p-4 bg-slate-50 rounded-2xl border-none focus:ring-2 focus:ring-blue-600 transition-all pr-10"
                 />
                 <span className="absolute right-4 top-1/2 -translate-y-1/2 text-slate-400 font-bold">ml</span>
+              </div>
+            </div>
+
+            <div className="space-y-2">
+              <label className="text-xs font-black text-slate-400 uppercase tracking-widest pl-1">Mínimo para Mayoreo (unidades)</label>
+              <div className="relative">
+                <input 
+                  type="number"
+                  value={wholesaleThreshold}
+                  onChange={(e) => setWholesaleThreshold(Number(e.target.value))}
+                  className="w-full text-2xl font-black p-4 bg-slate-50 rounded-2xl border-none focus:ring-2 focus:ring-blue-600 transition-all pr-10"
+                />
+                <span className="absolute right-4 top-1/2 -translate-y-1/2 text-slate-400 font-bold">und</span>
               </div>
             </div>
 
