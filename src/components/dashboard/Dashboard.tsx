@@ -59,24 +59,23 @@ export default function Dashboard() {
 
     const unsubSales = onSnapshot(collection(db, 'sales'), (salesSnap) => {
       const now = new Date();
-      const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1).toISOString().split('T')[0];
+      const startOfMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-01`;
       
       let monthSales = 0;
-      let totalIncome = 0;
+      let totalSalesVolume = 0;
       
       const productMap: Record<string, { name: string, sales: number }> = {};
       salesSnap.forEach(d => {
         const data = d.data();
         const saleDate = data.date || '';
         const saleDay = saleDate.split('T')[0];
-        const isPaid = data.status === 'paid';
         const total = data.total || 0;
 
-        if (isPaid) {
-          totalIncome += total;
-          if (saleDay >= startOfMonth) {
-            monthSales += total;
-          }
+        // stats.income will now represent total volume
+        totalSalesVolume += total;
+
+        if (saleDay >= startOfMonth) {
+          monthSales += total;
         }
 
         data.items?.forEach((item: any) => {
@@ -101,13 +100,18 @@ export default function Dashboard() {
       setScheduledOrders(scheduled);
       
       // Update stats related to sales
-      setStats(prev => ({
-        ...prev,
-        income: totalIncome,
-        monthIncome: monthSales,
-        goalPercent: Math.min(Math.round((monthSales / prev.goal) * 100), 100),
-        breakEvenPercent: prev.breakEvenTarget > 0 ? Math.min(Math.round((monthSales / prev.breakEvenTarget) * 100), 100) : 0
-      }));
+      setStats(prev => {
+        const goalPercent = prev.goal > 0 ? Math.min(Math.round((monthSales / prev.goal) * 100), 100) : 0;
+        const breakEvenPercent = prev.breakEvenTarget > 0 ? Math.min(Math.round((monthSales / prev.breakEvenTarget) * 100), 100) : 0;
+        
+        return {
+          ...prev,
+          income: totalSalesVolume,
+          monthIncome: monthSales,
+          goalPercent,
+          breakEvenPercent
+        };
+      });
 
       // Update chart with cumulative balance
       const getTimeRangeConfig = () => {
@@ -217,11 +221,20 @@ export default function Dashboard() {
 
     const unsubGoal = onSnapshot(doc(db, 'settings', 'finance'), (goalDoc) => {
       if (goalDoc.exists()) {
-        const monthlyGoal = goalDoc.data().monthlyGoal || 100000;
-        const mlPerBolis = goalDoc.data().mlPerBolis || 200;
-        const priceRetail = goalDoc.data().priceRetail || 10;
-        const priceWholesale = goalDoc.data().priceWholesale || 8;
-        setStats(prev => ({ ...prev, goal: monthlyGoal, mlPerBolis, priceRetail, priceWholesale }));
+        const data = goalDoc.data();
+        const monthlyGoal = data.monthlyGoal || 100000;
+        const mlPerBolis = data.mlPerBolis || 200;
+        const priceRetail = data.priceRetail || 10;
+        const priceWholesale = data.priceWholesale || 8;
+        
+        setStats(prev => ({ 
+          ...prev, 
+          goal: monthlyGoal, 
+          mlPerBolis, 
+          priceRetail, 
+          priceWholesale,
+          goalPercent: monthlyGoal > 0 ? Math.min(Math.round((prev.monthIncome / monthlyGoal) * 100), 100) : 0
+        }));
       }
     });
 

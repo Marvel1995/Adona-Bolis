@@ -131,6 +131,9 @@ export default function ProductionBatchManager() {
       setFormData({ recipeId: '', litersProduced: 0, responsible: '', finishedProducts: [] });
       alert('¡Lote completado con éxito! El inventario ha sido actualizado.');
     } catch (err: any) {
+      console.error("Production Error:", err);
+      const isStockError = err.message?.includes('insuficiente') || err.message?.includes('no existe');
+      alert(isStockError ? `❌ Error: ${err.message}` : "❌ Error al procesar el lote. Verifique existencias de insumos.");
       handleFirestoreError(err, OperationType.WRITE, 'production/batch');
     } finally {
       setIsSubmitting(false);
@@ -261,18 +264,39 @@ export default function ProductionBatchManager() {
                           <Layers className="w-5 h-5" /> Insumos Requeridos (Escalados)
                         </h4>
                         <div className="space-y-3">
-                          {scaledIngredients.map((si: any, idx: number) => (
-                            <div key={idx} className="flex justify-between items-center text-sm">
-                              <span className="text-blue-800 font-medium">{si.name}</span>
-                              <span className="font-bold text-blue-900">{si.scaledQuantity.toFixed(3)} {si.unit}</span>
-                            </div>
-                          ))}
+                          {scaledIngredients.map((si: any, idx: number) => {
+                            const currentStock = ingredients.find(i => i.id === si.ingredientId)?.stock || 0;
+                            const isShort = currentStock < si.scaledQuantity;
+                            return (
+                              <div key={idx} className="flex justify-between items-center text-sm">
+                                <div className="flex flex-col">
+                                  <span className={cn("font-medium", isShort ? "text-rose-600" : "text-blue-800")}>
+                                    {si.name}
+                                  </span>
+                                  {isShort && (
+                                    <span className="text-[10px] font-bold text-rose-500 uppercase">
+                                      Falta stock (Disponible: {currentStock.toFixed(2)})
+                                    </span>
+                                  )}
+                                </div>
+                                <span className={cn("font-bold", isShort ? "text-rose-700" : "text-blue-900")}>
+                                  {si.scaledQuantity.toFixed(3)} {si.unit}
+                                </span>
+                              </div>
+                            );
+                          })}
                         </div>
+                        {scaledIngredients.some((si: any) => (ingredients.find(i => i.id === si.ingredientId)?.stock || 0) < si.scaledQuantity) && (
+                          <div className="mt-4 p-3 bg-rose-500/10 border border-rose-200 rounded-xl flex items-center gap-2 text-rose-700">
+                            <AlertCircle className="w-4 h-4 shrink-0" />
+                            <p className="text-[10px] font-black uppercase">Ingredientes insuficientes para esta cantidad.</p>
+                          </div>
+                        )}
                       </div>
                     )}
 
                     <button 
-                      disabled={!formData.recipeId || !formData.litersProduced}
+                      disabled={!formData.recipeId || !formData.litersProduced || scaledIngredients.some((si: any) => (ingredients.find(i => i.id === si.ingredientId)?.stock || 0) < si.scaledQuantity)}
                       onClick={() => setStep(2)}
                       className="w-full bg-blue-600 text-white font-bold py-4 rounded-2xl shadow-lg hover:shadow-xl disabled:bg-gray-200 transition-all flex items-center justify-center gap-2"
                     >

@@ -16,6 +16,8 @@ export default function SalesManager() {
   const [products, setProducts] = useState<any[]>([]);
   const [customers, setCustomers] = useState<any[]>([]);
   const [isModalOpen, setIsModalOpen] = useState(false);
+  const [isEditModalOpen, setIsEditModalOpen] = useState(false);
+  const [selectedSale, setSelectedSale] = useState<any | null>(null);
   const [saleType, setSaleType] = useState<'menudeo' | 'mayoreo'>('menudeo');
   const [wholesaleThreshold, setWholesaleThreshold] = useState(10);
 
@@ -211,6 +213,9 @@ export default function SalesManager() {
       });
       alert('Operación registrada con éxito.');
     } catch (err: any) {
+      console.error("Sale Error:", err);
+      const isStockError = err.message?.includes('insuficiente') || err.message?.includes('no existe');
+      alert(isStockError ? `❌ Error: ${err.message}` : "❌ Error al procesar la venta. Verifique los datos y el inventario.");
       handleFirestoreError(err, OperationType.WRITE, 'sales/transaction');
     }
   };
@@ -396,6 +401,81 @@ export default function SalesManager() {
     }
   };
 
+  const handleUpdateSale = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!selectedSale) return;
+
+    try {
+      await runTransaction(db, async (transaction) => {
+        const saleRef = doc(db, 'sales', selectedSale.id);
+        const originalSaleDoc = await transaction.get(saleRef);
+        if (!originalSaleDoc.exists()) throw new Error("La venta no existe");
+        const originalSale = originalSaleDoc.data();
+
+        // 1. HANDLE CUSTOMER BALANCE CHANGES
+        // If customer changed, or status changed from paid to pending/scheduled, or total changed
+        const oldTotal = originalSale.total || 0;
+        const newTotal = selectedSale.total || 0;
+        const oldCustomerId = originalSale.customerId;
+        const newCustomerId = selectedSale.customerId;
+        const oldStatus = originalSale.status;
+        const newStatus = selectedSale.status;
+
+        // Revert old customer balance if it was affecting it
+        if ((oldStatus === 'pending' || oldStatus === 'scheduled') && oldCustomerId) {
+          const oldCustRef = doc(db, 'customers', oldCustomerId);
+          const oldCustDoc = await transaction.get(oldCustRef);
+          if (oldCustDoc.exists()) {
+            transaction.update(oldCustRef, { balance: Math.max(0, (oldCustDoc.data().balance || 0) - oldTotal) });
+          }
+        }
+
+        // Apply new customer balance if it should affect it
+        if ((newStatus === 'pending' || newStatus === 'scheduled') && newCustomerId) {
+          const newCustRef = doc(db, 'customers', newCustomerId);
+          const newCustDoc = await transaction.get(newCustRef);
+          if (newCustDoc.exists()) {
+            transaction.update(newCustRef, { balance: (newCustDoc.data().balance || 0) + newTotal });
+          }
+        }
+
+        // 2. FIND NEW CUSTOMER NAME IF CHANGED
+        let newCustomerName = originalSale.customerName;
+        let newCustomerPhone = originalSale.customerPhone;
+        if (newCustomerId !== oldCustomerId) {
+          if (newCustomerId) {
+            const cust = customers.find(c => c.id === newCustomerId);
+            newCustomerName = cust?.name || 'Venta de Mostrador';
+            newCustomerPhone = cust?.phone || '';
+          } else {
+            newCustomerName = 'Venta de Mostrador';
+            newCustomerPhone = '';
+          }
+        }
+
+        // 3. UPDATE SALE
+        transaction.update(saleRef, {
+          customerId: newCustomerId,
+          customerName: newCustomerName,
+          customerPhone: newCustomerPhone,
+          paymentMethod: selectedSale.paymentMethod,
+          status: newStatus,
+          deliveryDate: selectedSale.deliveryDate || '',
+          deliveryTime: selectedSale.deliveryTime || '',
+          deliveryAddress: selectedSale.deliveryAddress || '',
+          updatedAt: new Date().toISOString()
+        });
+      });
+
+      setIsEditModalOpen(false);
+      setSelectedSale(null);
+      alert('Venta actualizada correctamente');
+    } catch (err: any) {
+      alert(`Error al actualizar venta: ${err.message}`);
+      handleFirestoreError(err, OperationType.WRITE, `sales/${selectedSale.id}`);
+    }
+  };
+
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
@@ -427,9 +507,16 @@ export default function SalesManager() {
             </thead>
             <tbody className="divide-y divide-gray-50 text-sm">
               {sales.map(sale => (
-                <tr key={sale.id} className="hover:bg-gray-50">
+                <tr 
+                  key={sale.id} 
+                  className="hover:bg-gray-50 cursor-pointer transition-colors group"
+                  onClick={() => {
+                    setSelectedSale({ ...sale });
+                    setIsEditModalOpen(true);
+                  }}
+                >
                   <td className="px-6 py-4">
-                    <p className="font-bold text-gray-900">#{sale.id.slice(-5)}</p>
+                    <p className="font-bold text-gray-900 group-hover:text-blue-600">#{sale.id.slice(-5)}</p>
                     <p className="text-xs text-gray-400">{formatDate(sale.date)}</p>
                   </td>
                   <td className="px-6 py-4 font-semibold text-gray-800">{sale.customerName}</td>
@@ -447,7 +534,7 @@ export default function SalesManager() {
                       {sale.status === 'paid' ? 'Pagado' : sale.status === 'scheduled' ? 'Agendado' : 'Pendiente'}
                     </span>
                   </td>
-                  <td className="px-6 py-4">
+                  <td className="px-6 py-4" onClick={(e) => e.stopPropagation()}>
                     <div className="flex items-center gap-2">
                       <button onClick={() => generatePDF(sale)} title="Descargar PDF" className="p-2 text-gray-400 hover:text-blue-600 hover:bg-white rounded-lg transition-colors">
                         <Download className="w-4 h-4" />
@@ -465,6 +552,145 @@ export default function SalesManager() {
       </div>
 
       <AnimatePresence>
+        {isEditModalOpen && selectedSale && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+            <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} 
+              onClick={() => { setIsEditModalOpen(false); setSelectedSale(null); }} className="absolute inset-0 bg-black/40 backdrop-blur-sm" />
+            <motion.div 
+              initial={{ scale: 0.9, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.9, opacity: 0 }}
+              className="bg-white rounded-3xl shadow-2xl w-full max-w-2xl overflow-hidden relative z-10 flex flex-col max-h-[90vh]"
+            >
+              <div className="p-6 border-b border-gray-100 flex items-center justify-between">
+                <div>
+                  <h3 className="text-xl font-bold">Detalle de Venta #{selectedSale.id.slice(-6).toUpperCase()}</h3>
+                  <p className="text-xs text-gray-400 font-medium">Realizada el {formatDate(selectedSale.date)}</p>
+                </div>
+                <button onClick={() => { setIsEditModalOpen(false); setSelectedSale(null); }} className="p-2 hover:bg-gray-100 rounded-full transition-colors">
+                  <Plus className="w-5 h-5 rotate-45 text-gray-400" />
+                </button>
+              </div>
+
+              <form onSubmit={handleUpdateSale} className="flex-1 overflow-y-auto p-6 space-y-6 custom-scrollbar">
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="bg-blue-50 p-4 rounded-2xl border border-blue-100">
+                    <p className="text-[10px] font-black text-blue-400 uppercase tracking-widest mb-1">Total de Venta</p>
+                    <p className="text-2xl font-black text-blue-700">{formatCurrency(selectedSale.total)}</p>
+                    <p className="text-[10px] font-bold text-blue-500 mt-1 uppercase">{selectedSale.items?.length || 0} productos registrados</p>
+                  </div>
+                  <div className="bg-slate-50 p-4 rounded-2xl border border-slate-100">
+                    <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Tipo de Precio</p>
+                    <p className="text-xl font-bold text-slate-700 capitalize">{selectedSale.type || 'menudeo'}</p>
+                    <p className="text-[10px] font-bold text-slate-400 mt-1 uppercase">Basado en volumen de compra</p>
+                  </div>
+                </div>
+
+                <div className="space-y-4">
+                  <h4 className="font-black text-gray-400 uppercase text-[10px] tracking-widest border-b border-gray-50 pb-2">Información del Cliente y Pago</h4>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div className="space-y-1">
+                      <label className="text-[10px] font-bold text-gray-400 uppercase">Cliente Asignado</label>
+                      <select 
+                        value={selectedSale.customerId || ''} 
+                        onChange={e => setSelectedSale({...selectedSale, customerId: e.target.value})}
+                        className="w-full bg-gray-50 rounded-xl border border-transparent text-sm font-semibold p-3 focus:bg-white focus:ring-2 focus:ring-blue-600 transition-all"
+                      >
+                        <option value="">Público General</option>
+                        {customers.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+                      </select>
+                    </div>
+                    <div className="space-y-1">
+                      <label className="text-[10px] font-bold text-gray-400 uppercase">Estado de la Venta</label>
+                      <select 
+                        value={selectedSale.status} 
+                        onChange={e => setSelectedSale({...selectedSale, status: e.target.value})}
+                        className="w-full bg-gray-50 rounded-xl border border-transparent text-sm font-semibold p-3 focus:bg-white focus:ring-2 focus:ring-blue-600 transition-all"
+                      >
+                        <option value="paid">Pagado</option>
+                        <option value="pending">Pendiente (Fiado)</option>
+                        <option value="scheduled">Agendado (Pedido)</option>
+                      </select>
+                    </div>
+                    <div className="space-y-1">
+                      <label className="text-[10px] font-bold text-gray-400 uppercase">Método de Pago</label>
+                      <select 
+                        value={selectedSale.paymentMethod} 
+                        onChange={e => setSelectedSale({...selectedSale, paymentMethod: e.target.value})}
+                        className="w-full bg-gray-50 rounded-xl border border-transparent text-sm font-semibold p-3 focus:bg-white focus:ring-2 focus:ring-blue-600 transition-all"
+                      >
+                        <option value="efectivo">Efectivo</option>
+                        <option value="tarjeta">Tarjeta / Transferencia</option>
+                      </select>
+                    </div>
+                  </div>
+                </div>
+
+                {(selectedSale.status === 'scheduled' || (selectedSale.deliveryDate && selectedSale.status !== 'paid')) && (
+                  <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }} className="space-y-4 pt-4">
+                    <h4 className="font-black text-amber-500 uppercase text-[10px] tracking-widest border-b border-amber-50 pb-2">Datos de Entrega</h4>
+                    <div className="grid grid-cols-2 gap-4">
+                      <div className="space-y-1">
+                        <label className="text-[10px] font-bold text-amber-600 uppercase">Fecha de Entrega</label>
+                        <input 
+                          type="date"
+                          value={selectedSale.deliveryDate || ''}
+                          onChange={e => setSelectedSale({...selectedSale, deliveryDate: e.target.value})}
+                          className="w-full bg-amber-50/50 rounded-xl border border-transparent text-sm font-semibold p-3 focus:bg-white focus:ring-2 focus:ring-amber-500 transition-all"
+                        />
+                      </div>
+                      <div className="space-y-1">
+                        <label className="text-[10px] font-bold text-amber-600 uppercase">Horario Estimado</label>
+                        <input 
+                          type="text"
+                          value={selectedSale.deliveryTime || ''}
+                          onChange={e => setSelectedSale({...selectedSale, deliveryTime: e.target.value})}
+                          className="w-full bg-amber-50/50 rounded-xl border border-transparent text-sm font-semibold p-3 focus:bg-white focus:ring-2 focus:ring-amber-500 transition-all"
+                        />
+                      </div>
+                    </div>
+                    <div className="space-y-1">
+                      <label className="text-[10px] font-bold text-amber-600 uppercase">Dirección</label>
+                      <textarea 
+                        rows={2}
+                        value={selectedSale.deliveryAddress || ''}
+                        onChange={e => setSelectedSale({...selectedSale, deliveryAddress: e.target.value})}
+                        className="w-full bg-amber-50/50 rounded-xl border border-transparent text-sm font-semibold p-3 focus:bg-white focus:ring-2 focus:ring-amber-500 transition-all resize-none"
+                      />
+                    </div>
+                  </motion.div>
+                )}
+
+                <div className="space-y-3">
+                  <h4 className="font-black text-gray-400 uppercase text-[10px] tracking-widest border-b border-gray-50 pb-2">Artículos de la Venta</h4>
+                  <div className="space-y-2">
+                    {selectedSale.items?.map((item: any, idx: number) => (
+                      <div key={idx} className="flex items-center justify-between p-3 bg-gray-50 rounded-xl">
+                        <div>
+                          <p className="font-bold text-sm text-gray-800">{item.flavor}</p>
+                          <p className="text-[10px] text-gray-400 font-bold uppercase">{item.quantity} unidades × {formatCurrency(item.price)}</p>
+                        </div>
+                        <p className="font-black text-blue-600">{formatCurrency(item.price * item.quantity)}</p>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+                <div className="bg-gray-900 rounded-2xl p-6 text-white flex items-center justify-between">
+                  <div>
+                    <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Total Comprobado</p>
+                    <p className="text-3xl font-black">{formatCurrency(selectedSale.total)}</p>
+                  </div>
+                  <button 
+                    type="submit"
+                    className="bg-blue-600 hover:bg-blue-700 text-white font-bold px-8 py-3 rounded-xl transition-all shadow-lg active:scale-95"
+                  >
+                    Guardar Cambios
+                  </button>
+                </div>
+              </form>
+            </motion.div>
+          </div>
+        )}
+
         {isModalOpen && (
           <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
             <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} 
@@ -523,40 +749,60 @@ export default function SalesManager() {
                     </div>
                   </div>
                   <div className="space-y-3">
-                    {newSale.items.map((item: any) => (
-                      <div key={item.productId} className="bg-white p-3 rounded-xl border border-gray-100 group">
-                        <div className="flex justify-between items-start mb-2">
-                          <div>
-                            <p className="font-bold text-sm text-gray-800 leading-tight">{item.flavor}</p>
-                            <p className="text-[10px] text-gray-400 font-bold uppercase">{formatCurrency(item.price)} c/u</p>
-                          </div>
-                          <button 
-                            onClick={() => removeItemFromSale(item.productId)}
-                            className="p-1 text-slate-300 hover:text-rose-600 transition-colors"
-                          >
-                            <Trash2 className="w-3 h-3" />
-                          </button>
-                        </div>
-                        <div className="flex items-center justify-between">
-                          <div className="flex items-center gap-2 bg-gray-50 rounded-lg p-1">
+                    {newSale.items.map((item: any) => {
+                      const prod = products.find(p => p.id === item.productId);
+                      const isShort = prod && prod.stock < item.quantity;
+                      return (
+                        <div key={item.productId} className={cn(
+                          "bg-white p-3 rounded-xl border transition-all group",
+                          isShort ? "border-rose-200 bg-rose-50/30" : "border-gray-100"
+                        )}>
+                          <div className="flex justify-between items-start mb-2">
+                            <div>
+                              <p className={cn("font-bold text-sm leading-tight", isShort ? "text-rose-700" : "text-gray-800")}>
+                                {item.flavor}
+                              </p>
+                              <div className="flex items-center gap-2">
+                                <p className="text-[10px] text-gray-400 font-bold uppercase">{formatCurrency(item.price)} c/u</p>
+                                {isShort && (
+                                  <span className="text-[9px] font-black text-rose-500 uppercase flex items-center gap-1">
+                                    <AlertCircle className="w-2.5 h-2.5" /> Stock Insuficiente ({prod?.stock || 0})
+                                  </span>
+                                )}
+                              </div>
+                            </div>
                             <button 
-                              onClick={() => updateItemQuantity(item.productId, -1)}
-                              className="p-1 hover:bg-white rounded shadow-sm text-gray-500 transition-all"
+                              onClick={() => removeItemFromSale(item.productId)}
+                              className="p-1 text-slate-300 hover:text-rose-600 transition-colors"
                             >
-                              <Minus className="w-3 h-3" />
-                            </button>
-                            <span className="text-xs font-black w-6 text-center">{item.quantity}</span>
-                            <button 
-                              onClick={() => updateItemQuantity(item.productId, 1)}
-                              className="p-1 hover:bg-white rounded shadow-sm text-gray-500 transition-all"
-                            >
-                              <Plus className="w-3 h-3" />
+                              <Trash2 className="w-3 h-3" />
                             </button>
                           </div>
-                          <span className="font-black text-sm text-blue-600">{formatCurrency(item.price * item.quantity)}</span>
+                          <div className="flex items-center justify-between">
+                            <div className="flex items-center gap-2 bg-gray-50 rounded-lg p-1">
+                              <button 
+                                onClick={() => updateItemQuantity(item.productId, -1)}
+                                className="p-1 hover:bg-white rounded shadow-sm text-gray-500 transition-all"
+                              >
+                                <Minus className="w-3 h-3" />
+                              </button>
+                              <span className={cn("text-xs font-black w-6 text-center", isShort ? "text-rose-600" : "text-slate-900")}>
+                                {item.quantity}
+                              </span>
+                              <button 
+                                onClick={() => updateItemQuantity(item.productId, 1)}
+                                className="p-1 hover:bg-white rounded shadow-sm text-gray-500 transition-all"
+                              >
+                                <Plus className="w-3 h-3" />
+                              </button>
+                            </div>
+                            <span className={cn("font-black text-sm", isShort ? "text-rose-600" : "text-blue-600")}>
+                              {formatCurrency(item.price * item.quantity)}
+                            </span>
+                          </div>
                         </div>
-                      </div>
-                    ))}
+                      );
+                    })}
                     {newSale.items.length === 0 && <p className="text-center text-gray-400 text-xs py-10 italic">Aucún producto seleccionado</p>}
                   </div>
                 </div>
