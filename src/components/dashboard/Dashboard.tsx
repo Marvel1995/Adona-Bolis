@@ -48,8 +48,82 @@ export default function Dashboard() {
   const [recipePerformance, setRecipePerformance] = useState<any[]>([]);
   const [timeRange, setTimeRange] = useState<'7d' | '1m' | '3m' | '1y'>('7d');
   const [selectedRecipe, setSelectedRecipe] = useState<any | null>(null);
+  const [isSalesDetailModalOpen, setIsSalesDetailModalOpen] = useState(false);
+  const [salesDetailRange, setSalesDetailRange] = useState<'week' | 'month' | 'year'>('week');
+  const [salesDetailChartData, setSalesDetailChartData] = useState<any[]>([]);
+  const [allSales, setAllSales] = useState<any[]>([]);
 
   const COLORS = ['#2563eb', '#10b981', '#f59e0b', '#f43f5e', '#8b5cf6', '#06b6d4'];
+
+  useEffect(() => {
+    if (allSales.length === 0) return;
+
+    const processSalesDetail = () => {
+      const now = new Date();
+      const data: any[] = [];
+      const daysAbbr = ['Dom', 'Lun', 'Mar', 'Mie', 'Jue', 'Vie', 'Sab'];
+      const monthsAbbr = ['Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun', 'Jul', 'Ago', 'Sep', 'Oct', 'Nov', 'Dic'];
+
+      if (salesDetailRange === 'week') {
+        // Last 7 days
+        for (let i = 6; i >= 0; i--) {
+          const d = new Date();
+          d.setDate(d.getDate() - i);
+          const dateStr = d.toISOString().split('T')[0];
+          data.push({ 
+            name: daysAbbr[d.getDay()], 
+            dateStr, 
+            piezas: 0,
+            fullLabel: d.toLocaleDateString('es-MX', { day: 'numeric', month: 'short' })
+          });
+        }
+      } else if (salesDetailRange === 'month') {
+        // Last 30 days
+        for (let i = 29; i >= 0; i--) {
+          const d = new Date();
+          d.setDate(d.getDate() - i);
+          const dateStr = d.toISOString().split('T')[0];
+          data.push({ 
+            name: d.getDate().toString(), 
+            dateStr, 
+            piezas: 0,
+            fullLabel: d.toLocaleDateString('es-MX', { day: 'numeric', month: 'short' })
+          });
+        }
+      } else if (salesDetailRange === 'year') {
+        // Last 12 months
+        for (let i = 11; i >= 0; i--) {
+          const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+          const monthKey = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+          data.push({ 
+            name: monthsAbbr[d.getMonth()], 
+            monthKey, 
+            piezas: 0,
+            fullLabel: d.toLocaleDateString('es-MX', { month: 'long', year: 'numeric' })
+          });
+        }
+      }
+
+      allSales.forEach(sale => {
+        const saleDate = new Date(sale.date);
+        const dateStr = sale.date?.split('T')[0];
+        const monthKey = sale.date?.substring(0, 7);
+        const piezas = sale.items?.reduce((sum: number, item: any) => sum + (item.quantity || 0), 0) || 0;
+
+        if (salesDetailRange === 'year') {
+          const match = data.find(d => d.monthKey === monthKey);
+          if (match) match.piezas += piezas;
+        } else {
+          const match = data.find(d => d.dateStr === dateStr);
+          if (match) match.piezas += piezas;
+        }
+      });
+
+      setSalesDetailChartData(data);
+    };
+
+    processSalesDetail();
+  }, [allSales, salesDetailRange]);
 
   useEffect(() => {
     // Basic data fetching
@@ -58,6 +132,9 @@ export default function Dashboard() {
     const unsubProds = onSnapshot(collection(db, 'products'), (snap) => setProducts(snap.docs.map(d => ({ id: d.id, ...d.data() }))));
 
     const unsubSales = onSnapshot(collection(db, 'sales'), (salesSnap) => {
+      const salesData = salesSnap.docs.map(d => ({ id: d.id, ...d.data() }));
+      setAllSales(salesData);
+      
       const now = new Date();
       const startOfMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-01`;
       
@@ -356,7 +433,13 @@ export default function Dashboard() {
              <span className="text-gray-400">Card: <span className="text-gray-600">{formatCurrency(stats.cardTotal)}</span></span>
           </div>
         </div>
-        <StatCard title="Ventas Totales" value={formatCurrency(stats.income)} icon={TrendingUp} color="green" />
+        <StatCard 
+          title="Ventas Totales" 
+          value={formatCurrency(stats.income)} 
+          icon={TrendingUp} 
+          color="green" 
+          onClick={() => setIsSalesDetailModalOpen(true)}
+        />
         <StatCard title="Egresos Totales" value={formatCurrency(stats.expenses)} icon={TrendingDown} color="red" />
         <div className="bg-white p-6 rounded-3xl shadow-sm border border-slate-200">
           <div className="flex justify-between mb-4">
@@ -535,6 +618,146 @@ export default function Dashboard() {
             
             <div className="p-4 bg-slate-900 text-white text-center shrink-0">
               <p className="text-[9px] font-black text-slate-500 uppercase tracking-widest">Sistema BoliControl Pro © v2.0</p>
+            </div>
+          </motion.div>
+        </div>
+      )}
+
+      {/* Modal Detalle de Ventas (Piezas) */}
+      {isSalesDetailModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm animate-in fade-in duration-300">
+          <motion.div 
+            initial={{ opacity: 0, scale: 0.9, y: 20 }}
+            animate={{ opacity: 1, scale: 1, y: 0 }}
+            className="bg-white rounded-[2.5rem] w-full max-w-4xl max-h-[90vh] overflow-hidden shadow-2xl flex flex-col"
+          >
+            <div className="p-8 border-b border-slate-100 flex items-center justify-between bg-slate-50/50 shrink-0">
+              <div>
+                <div className="flex items-center gap-3 mb-2">
+                  <span className="text-[10px] font-black text-emerald-600 uppercase tracking-widest bg-emerald-50 px-3 py-1 rounded-full">Análisis de Volumen</span>
+                  <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest bg-slate-100 px-3 py-1 rounded-full">Piezas Vendidas</span>
+                </div>
+                <h3 className="text-2xl font-black text-slate-900 uppercase leading-none">Detalle de Ventas Totales</h3>
+              </div>
+              <div className="flex items-center gap-4">
+                <div className="flex items-center gap-2 p-1 bg-slate-100 rounded-xl">
+                  {(['week', 'month', 'year'] as const).map((r) => (
+                    <button
+                      key={r}
+                      onClick={() => setSalesDetailRange(r)}
+                      className={cn(
+                        "px-4 py-2 rounded-lg text-[10px] font-black uppercase transition-all",
+                        salesDetailRange === r 
+                          ? "bg-white text-emerald-600 shadow-sm" 
+                          : "text-slate-500 hover:text-slate-700"
+                      )}
+                    >
+                      {r === 'week' ? 'Semana' : r === 'month' ? 'Mes' : 'Año'}
+                    </button>
+                  ))}
+                </div>
+                <button 
+                  onClick={() => setIsSalesDetailModalOpen(false)}
+                  className="p-3 bg-white border border-slate-200 rounded-2xl text-slate-400 hover:text-slate-900 transition-all hover:shadow-md"
+                >
+                  <X className="w-6 h-6" />
+                </button>
+              </div>
+            </div>
+
+            <div className="flex-1 overflow-y-auto p-8 custom-scrollbar">
+              <div className="mb-8 grid grid-cols-1 md:grid-cols-3 gap-6">
+                <div className="bg-emerald-50 p-6 rounded-3xl border border-emerald-100">
+                  <p className="text-[10px] font-black text-emerald-600 uppercase tracking-widest mb-1">Total de Piezas</p>
+                  <p className="text-3xl font-black text-emerald-700">
+                    {salesDetailChartData.reduce((sum, d) => sum + d.piezas, 0)}
+                  </p>
+                  <p className="text-[10px] font-bold text-emerald-500 mt-1 uppercase tracking-tight">Periodo seleccionado</p>
+                </div>
+                <div className="bg-blue-50 p-6 rounded-3xl border border-blue-100">
+                  <p className="text-[10px] font-black text-blue-600 uppercase tracking-widest mb-1">Promedio por {salesDetailRange === 'year' ? 'Mes' : 'Día'}</p>
+                  <p className="text-3xl font-black text-blue-700">
+                    {Math.round(salesDetailChartData.reduce((sum, d) => sum + d.piezas, 0) / salesDetailChartData.length)}
+                  </p>
+                  <p className="text-[10px] font-bold text-blue-500 mt-1 uppercase tracking-tight">Ritmo de venta actual</p>
+                </div>
+                <div className="bg-slate-900 p-6 rounded-3xl border border-slate-800 text-white">
+                  <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Pico Registrado</p>
+                  <p className="text-xl font-black text-white truncate uppercase">
+                    {(() => {
+                      const max = [...salesDetailChartData].sort((a, b) => b.piezas - a.piezas)[0];
+                      return max?.piezas > 0 ? `${max.name} (${max.piezas} pz)` : 'Sin datos';
+                    })()}
+                  </p>
+                  <p className="text-[10px] font-bold text-slate-500 mt-1 uppercase tracking-tight">Pico de demanda</p>
+                </div>
+              </div>
+
+              <div className="h-[400px] w-full bg-slate-50/50 rounded-[2rem] p-8 border border-slate-100">
+                {salesDetailChartData.length > 0 && (
+                  <ResponsiveContainer width="100%" height="100%">
+                    <BarChart data={salesDetailChartData} margin={{ top: 20, right: 30, left: 0, bottom: 0 }}>
+                      <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e2e8f0" />
+                      <XAxis 
+                        dataKey="name" 
+                        axisLine={false} 
+                        tickLine={false} 
+                        tick={{ fill: '#64748b', fontSize: 11, fontWeight: 700 }}
+                        dy={10}
+                      />
+                      <YAxis 
+                        axisLine={false} 
+                        tickLine={false} 
+                        tick={{ fill: '#64748b', fontSize: 11, fontWeight: 700 }}
+                      />
+                      <Tooltip 
+                        cursor={{ fill: '#f1f5f9', radius: 12 }}
+                        content={({ active, payload }) => {
+                          if (active && payload && payload.length) {
+                            const data = payload[0].payload;
+                            const isMax = data.piezas === Math.max(...salesDetailChartData.map(d => d.piezas));
+                            return (
+                              <div className="bg-slate-900 border border-slate-800 p-4 rounded-2xl shadow-2xl">
+                                <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2 border-b border-white/5 pb-2">
+                                  {data.fullLabel}
+                                </p>
+                                <div className="flex items-center justify-between gap-8">
+                                  <span className="text-[10px] font-bold text-slate-400 uppercase">Unidades Vendidas</span>
+                                  <span className={cn("text-xl font-black", isMax ? "text-emerald-400" : "text-white")}>
+                                    {data.piezas} <span className="text-[10px] uppercase">pz</span>
+                                  </span>
+                                </div>
+                                {isMax && (
+                                  <div className="mt-2 flex items-center gap-2 text-[8px] font-black text-emerald-400 uppercase bg-emerald-400/10 px-2 py-1 rounded-lg">
+                                    <TrendingUp className="w-3 h-3" /> Pico de Venta
+                                  </div>
+                                )}
+                              </div>
+                            );
+                          }
+                          return null;
+                        }}
+                      />
+                      <Bar 
+                        dataKey="piezas" 
+                        fill="#10b981" 
+                        radius={[10, 10, 10, 10]} 
+                        barSize={salesDetailRange === 'month' ? 12 : 40}
+                        animationDuration={1500}
+                      >
+                        {salesDetailChartData.map((entry, index) => {
+                          const isMax = entry.piezas === Math.max(...salesDetailChartData.map(d => d.piezas)) && entry.piezas > 0;
+                          return <Cell key={`cell-${index}`} fill={isMax ? '#059669' : '#10b981'} fillOpacity={isMax ? 1 : 0.7} />;
+                        })}
+                      </Bar>
+                    </BarChart>
+                  </ResponsiveContainer>
+                )}
+              </div>
+            </div>
+
+            <div className="p-4 bg-slate-900 text-white text-center shrink-0">
+              <p className="text-[9px] font-black text-slate-500 uppercase tracking-widest">Análisis de Volumen de Distribución • Panel Adonaí</p>
             </div>
           </motion.div>
         </div>
@@ -762,7 +985,7 @@ export default function Dashboard() {
   );
 }
 
-function StatCard({ title, value, icon: Icon, color, isWarning }: any) {
+function StatCard({ title, value, icon: Icon, color, isWarning, onClick }: any) {
   const colors: any = {
     blue: "bg-blue-50 text-blue-600 border-blue-100",
     green: "bg-emerald-50 text-emerald-600 border-emerald-100",
@@ -770,14 +993,21 @@ function StatCard({ title, value, icon: Icon, color, isWarning }: any) {
     amber: "bg-amber-50 text-amber-600 border-amber-100",
   };
   return (
-    <div className="bg-white p-6 rounded-3xl shadow-sm border border-slate-200">
+    <button 
+      onClick={onClick}
+      disabled={!onClick}
+      className={cn(
+        "bg-white p-6 rounded-3xl shadow-sm border border-slate-200 text-left transition-all",
+        onClick ? "hover:shadow-xl hover:border-blue-200 hover:-translate-y-1 active:scale-95" : ""
+      )}
+    >
       <div className="flex justify-between mb-4">
         <div className={cn("p-3 rounded-2xl border", colors[color])}><Icon className="w-6 h-6" /></div>
         {isWarning && <div className="text-[10px] font-black text-rose-600 bg-rose-50 px-2 py-1 rounded-full border border-rose-100 uppercase animate-pulse">Alerta</div>}
       </div>
       <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">{title}</p>
       <p className="text-2xl font-black text-slate-900 mt-1">{value}</p>
-    </div>
+    </button>
   );
 }
 

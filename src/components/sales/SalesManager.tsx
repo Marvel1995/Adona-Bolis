@@ -2,9 +2,9 @@ import React, { useState, useEffect } from 'react';
 import { 
   ShoppingCart, Plus, Minus, Search, User, CreditCard, 
   FileText, Download, TrendingUp, AlertCircle, Trash2,
-  Clock, MapPin
+  Clock, MapPin, Heart, Package
 } from 'lucide-react';
-import { collection, onSnapshot, addDoc, query, orderBy, doc, increment, runTransaction, getDoc } from 'firebase/firestore';
+import { collection, onSnapshot, addDoc, query, orderBy, doc, increment, runTransaction, getDoc, serverTimestamp } from 'firebase/firestore';
 import { db, handleFirestoreError, OperationType } from '../../lib/firebase';
 import { cn, formatCurrency, formatDate } from '../../lib/utils';
 import { jsPDF } from 'jspdf';
@@ -20,6 +20,8 @@ export default function SalesManager() {
   const [selectedSale, setSelectedSale] = useState<any | null>(null);
   const [saleType, setSaleType] = useState<'menudeo' | 'mayoreo'>('menudeo');
   const [wholesaleThreshold, setWholesaleThreshold] = useState(10);
+  const [cashReceived, setCashReceived] = useState<number | ''>('');
+  const [isCourtesyMode, setIsCourtesyMode] = useState(false);
 
   // New Sale State
   const [newSale, setNewSale] = useState<any>({
@@ -56,6 +58,7 @@ export default function SalesManager() {
 
   const applyPricingRules = (items: any[], type: 'menudeo' | 'mayoreo') => {
     return items.map(item => {
+      if (item.isCourtesy) return item;
       const prod = products.find(p => p.id === item.productId);
       if (!prod) return item;
       return {
@@ -70,7 +73,7 @@ export default function SalesManager() {
     if (!prod) return;
     
     let updatedItems = [...newSale.items];
-    const existingIndex = updatedItems.findIndex((i: any) => i.productId === productId);
+    const existingIndex = updatedItems.findIndex((i: any) => i.productId === productId && i.isCourtesy === isCourtesyMode);
     
     if (existingIndex > -1) {
       updatedItems[existingIndex] = { 
@@ -82,7 +85,8 @@ export default function SalesManager() {
         productId, 
         flavor: prod.flavor, 
         quantity: 1, 
-        price: saleType === 'mayoreo' ? prod.priceWholesale : prod.priceRetail 
+        price: isCourtesyMode ? 0 : (saleType === 'mayoreo' ? prod.priceWholesale : prod.priceRetail),
+        isCourtesy: isCourtesyMode
       });
     }
 
@@ -94,15 +98,14 @@ export default function SalesManager() {
       setSaleType(newType);
       updatedItems = applyPricingRules(updatedItems, newType);
     } else {
-      // Even if type didn't change, ensure the added item has the correct price relative to current type
       updatedItems = applyPricingRules(updatedItems, saleType);
     }
 
     setNewSale({ ...newSale, items: updatedItems });
   };
 
-  const removeItemFromSale = (productId: string) => {
-    let updatedItems = newSale.items.filter((i: any) => i.productId !== productId);
+  const removeItemFromSale = (productId: string, isCourtesy?: boolean) => {
+    let updatedItems = newSale.items.filter((i: any) => !(i.productId === productId && i.isCourtesy === isCourtesy));
     
     const newTotalQty = updatedItems.reduce((sum, i) => sum + i.quantity, 0);
     const newType = newTotalQty >= wholesaleThreshold ? 'mayoreo' : 'menudeo';
@@ -115,9 +118,9 @@ export default function SalesManager() {
     setNewSale({ ...newSale, items: updatedItems });
   };
 
-  const updateItemQuantity = (productId: string, delta: number) => {
+  const updateItemQuantity = (productId: string, delta: number, isCourtesy?: boolean) => {
     let updatedItems = newSale.items.map((i: any) => 
-      i.productId === productId 
+      (i.productId === productId && i.isCourtesy === isCourtesy)
         ? { ...i, quantity: Math.max(1, i.quantity + delta) } 
         : i
     );
@@ -201,6 +204,8 @@ export default function SalesManager() {
       });
 
       setIsModalOpen(false);
+      setCashReceived('');
+      setIsCourtesyMode(false);
       setNewSale({ 
         customerId: '', 
         items: [], 
@@ -694,7 +699,7 @@ export default function SalesManager() {
         {isModalOpen && (
           <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
             <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} 
-              onClick={() => setIsModalOpen(false)} className="absolute inset-0 bg-black/40 backdrop-blur-sm" />
+              onClick={() => { setIsModalOpen(false); setCashReceived(''); setIsCourtesyMode(false); }} className="absolute inset-0 bg-black/40 backdrop-blur-sm" />
             <motion.div 
               initial={{ scale: 0.9, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.9, opacity: 0 }}
               className="bg-white rounded-3xl shadow-2xl w-full max-w-4xl overflow-hidden relative z-10 flex flex-col md:flex-row h-[85vh]"
@@ -712,7 +717,32 @@ export default function SalesManager() {
                         MODO {saleType.toUpperCase()} {saleType === 'mayoreo' ? '(MAYOREO)' : '(DETALLE)'}
                       </div>
                     </div>
-                 </div>
+                  </div>
+                  <div className="space-y-3 mb-6">
+                    <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest block ml-1">Modo de Selección</label>
+                    <div className="flex p-1 bg-gray-100 rounded-2xl w-fit">
+                      <button 
+                        type="button"
+                        onClick={() => setIsCourtesyMode(false)}
+                        className={cn(
+                          "px-6 py-2 rounded-xl text-xs font-black transition-all flex items-center gap-2",
+                          !isCourtesyMode ? "bg-white shadow-sm text-blue-600" : "text-gray-500"
+                        )}
+                      >
+                        <Package className="w-4 h-4" /> Venta
+                      </button>
+                      <button 
+                        type="button"
+                        onClick={() => setIsCourtesyMode(true)}
+                        className={cn(
+                          "px-6 py-2 rounded-xl text-xs font-black transition-all flex items-center gap-2",
+                          isCourtesyMode ? "bg-rose-600 text-white shadow-lg" : "text-gray-500"
+                        )}
+                      >
+                        <Heart className="w-4 h-4" /> Cortesía
+                      </button>
+                    </div>
+                  </div>
 
                  <div className="relative mb-4">
                     <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 w-4 h-4" />
@@ -723,12 +753,20 @@ export default function SalesManager() {
                     {products.map(p => (
                       <button 
                         key={p.id}
+                        type="button"
                         onClick={() => addItemToSale(p.id)}
-                        className="p-4 bg-gray-50 rounded-2xl hover:bg-white hover:shadow-md border border-transparent hover:border-gray-100 transition-all text-left"
+                        className={cn(
+                          "p-4 rounded-2xl border transition-all text-left relative group",
+                          isCourtesyMode 
+                            ? "border-rose-100 bg-white hover:bg-rose-50 hover:border-rose-200" 
+                            : "bg-gray-50 border-transparent hover:bg-white hover:shadow-md hover:border-gray-100"
+                        )}
                       >
                         <p className="font-bold text-gray-800 line-clamp-1">{p.flavor}</p>
                         <p className="text-xs text-gray-500 mb-1">{p.stock} pz disponibles</p>
-                        <p className="text-blue-600 font-bold">{formatCurrency(saleType === 'mayoreo' ? p.priceWholesale : p.priceRetail)}</p>
+                        <p className={cn("font-bold", isCourtesyMode ? "text-rose-600" : "text-blue-600")}>
+                          {isCourtesyMode ? 'GRATIS (Cortesía)' : formatCurrency(saleType === 'mayoreo' ? p.priceWholesale : p.priceRetail)}
+                        </p>
                       </button>
                     ))}
                  </div>
@@ -753,15 +791,20 @@ export default function SalesManager() {
                       const prod = products.find(p => p.id === item.productId);
                       const isShort = prod && prod.stock < item.quantity;
                       return (
-                        <div key={item.productId} className={cn(
+                        <div key={`${item.productId}-${item.isCourtesy}`} className={cn(
                           "bg-white p-3 rounded-xl border transition-all group",
-                          isShort ? "border-rose-200 bg-rose-50/30" : "border-gray-100"
+                          isShort ? "border-rose-200 bg-rose-50/30" : (item.isCourtesy ? "border-rose-100 bg-rose-50/10" : "border-gray-100")
                         )}>
                           <div className="flex justify-between items-start mb-2">
                             <div>
-                              <p className={cn("font-bold text-sm leading-tight", isShort ? "text-rose-700" : "text-gray-800")}>
-                                {item.flavor}
-                              </p>
+                              <div className="flex items-center gap-2">
+                                <p className={cn("font-bold text-sm leading-tight", isShort ? "text-rose-700" : "text-gray-800")}>
+                                  {item.flavor}
+                                </p>
+                                {item.isCourtesy && (
+                                  <span className="text-[8px] font-black bg-rose-600 text-white px-1.5 py-0.5 rounded-md tracking-widest">CORTESÍA</span>
+                                )}
+                              </div>
                               <div className="flex items-center gap-2">
                                 <p className="text-[10px] text-gray-400 font-bold uppercase">{formatCurrency(item.price)} c/u</p>
                                 {isShort && (
@@ -772,7 +815,7 @@ export default function SalesManager() {
                               </div>
                             </div>
                             <button 
-                              onClick={() => removeItemFromSale(item.productId)}
+                              onClick={() => removeItemFromSale(item.productId, item.isCourtesy)}
                               className="p-1 text-slate-300 hover:text-rose-600 transition-colors"
                             >
                               <Trash2 className="w-3 h-3" />
@@ -781,22 +824,22 @@ export default function SalesManager() {
                           <div className="flex items-center justify-between">
                             <div className="flex items-center gap-2 bg-gray-50 rounded-lg p-1">
                               <button 
-                                onClick={() => updateItemQuantity(item.productId, -1)}
+                                onClick={() => updateItemQuantity(item.productId, -1, item.isCourtesy)}
                                 className="p-1 hover:bg-white rounded shadow-sm text-gray-500 transition-all"
                               >
                                 <Minus className="w-3 h-3" />
                               </button>
-                              <span className={cn("text-xs font-black w-6 text-center", isShort ? "text-rose-600" : "text-slate-900")}>
+                              <span className={cn("text-xs font-black w-6 text-center", isShort ? "text-rose-600" : (item.isCourtesy ? "text-rose-600" : "text-slate-900"))}>
                                 {item.quantity}
                               </span>
                               <button 
-                                onClick={() => updateItemQuantity(item.productId, 1)}
+                                onClick={() => updateItemQuantity(item.productId, 1, item.isCourtesy)}
                                 className="p-1 hover:bg-white rounded shadow-sm text-gray-500 transition-all"
                               >
                                 <Plus className="w-3 h-3" />
                               </button>
                             </div>
-                            <span className={cn("font-black text-sm", isShort ? "text-rose-600" : "text-blue-600")}>
+                            <span className={cn("font-black text-sm", isShort ? "text-rose-600" : (item.isCourtesy ? "text-rose-600" : "text-blue-600"))}>
                               {formatCurrency(item.price * item.quantity)}
                             </span>
                           </div>
@@ -922,6 +965,34 @@ export default function SalesManager() {
                         className="w-full bg-white rounded-xl border border-gray-200 text-xs font-semibold p-2.5"
                       />
                     </div>
+
+                    {newSale.status === 'paid' && newSale.paymentMethod === 'efectivo' && (
+                      <motion.div 
+                        initial={{ opacity: 0, y: -5 }} 
+                        animate={{ opacity: 1, y: 0 }}
+                        className="bg-green-50 p-4 rounded-2xl border border-green-100 space-y-3"
+                      >
+                        <div className="space-y-1">
+                          <label className="text-[10px] font-black text-green-600 uppercase tracking-widest">Efectivo Recibido</label>
+                          <div className="relative">
+                            <span className="absolute left-3 top-1/2 -translate-y-1/2 text-green-600 font-bold">$</span>
+                            <input 
+                              type="number"
+                              placeholder="0.00"
+                              value={cashReceived}
+                              onChange={e => setCashReceived(e.target.value === '' ? '' : Number(e.target.value))}
+                              className="w-full pl-7 pr-4 py-2 bg-white rounded-xl border border-green-200 text-sm font-black text-green-700 focus:ring-2 focus:ring-green-500 outline-none"
+                            />
+                          </div>
+                        </div>
+                        {cashReceived !== '' && cashReceived >= totalSale && (
+                          <div className="flex justify-between items-center pt-1">
+                            <p className="text-[10px] font-black text-green-600 uppercase tracking-widest">Cambio a Entregar</p>
+                            <p className="text-xl font-black text-green-700">{formatCurrency(cashReceived - totalSale)}</p>
+                          </div>
+                        )}
+                      </motion.div>
+                    )}
                   </div>
 
                   <div className="pt-2">
