@@ -28,7 +28,8 @@ export default function Dashboard() {
     breakEvenTarget: 0,
     breakEvenPercent: 0,
     monthIncome: 0,
-    reorderCount: 0,
+    reorderCountIng: 0,
+    reorderCountProd: 0,
     goal: 100000,
     mlPerBolis: 200,
     priceRetail: 10,
@@ -241,9 +242,19 @@ export default function Dashboard() {
   useEffect(() => {
     // Basic data fetching
     const unsubRecipes = onSnapshot(collection(db, 'recipes'), (snap) => setRecipes(snap.docs.map(d => ({ id: d.id, ...d.data() }))));
-    const unsubIngs = onSnapshot(collection(db, 'ingredients'), (snap) => setIngredients(snap.docs.map(d => ({ id: d.id, ...d.data() }))));
+    const unsubIngs = onSnapshot(collection(db, 'ingredients'), (snap) => {
+      const data = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+      setIngredients(data);
+      const alerts = data.filter((d: any) => d.stock <= (d.reorderPoint || 0)).length;
+      setStats(prev => ({ ...prev, reorderCountIng: alerts }));
+    });
     const unsubCusts = onSnapshot(collection(db, 'customers'), (snap) => setCustomers(snap.docs.map(d => ({ id: d.id, ...d.data() }))));
-    const unsubProds = onSnapshot(collection(db, 'products'), (snap) => setProducts(snap.docs.map(d => ({ id: d.id, ...d.data() }))));
+    const unsubProds = onSnapshot(collection(db, 'products'), (snap) => {
+      const data = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+      setProducts(data);
+      const alerts = data.filter((d: any) => d.stock <= (d.reorderPoint || 0)).length;
+      setStats(prev => ({ ...prev, reorderCountProd: alerts }));
+    });
 
     const unsubSales = onSnapshot(collection(db, 'sales'), (salesSnap) => {
       const salesData = salesSnap.docs.map(d => ({ id: d.id, ...d.data() })) as any[];
@@ -432,11 +443,6 @@ export default function Dashboard() {
       }));
     });
 
-    const unsubIng = onSnapshot(collection(db, 'ingredients'), (ingSnap) => {
-      const alerts = ingSnap.docs.filter(d => d.data().stock <= (d.data().reorderPoint || 0)).length;
-      setStats(prev => ({ ...prev, reorderCount: alerts }));
-    });
-
     const unsubGoal = onSnapshot(doc(db, 'settings', 'finance'), (goalDoc) => {
       if (goalDoc.exists()) {
         const data = goalDoc.data();
@@ -459,7 +465,6 @@ export default function Dashboard() {
     return () => {
       unsubSales();
       unsubExp();
-      unsubIng();
       unsubGoal();
       unsubRecipes();
       unsubIngs();
@@ -1333,7 +1338,28 @@ export default function Dashboard() {
         <div className="bg-white p-8 rounded-3xl border border-slate-200 shadow-sm">
           <h3 className="text-xl font-bold mb-8">Alertas del Sistema</h3>
           <div className="space-y-4">
-            <ActionItem icon={AlertTriangle} title={stats.reorderCount > 0 ? "Bajo Stock Insulado" : "Stock Saludable"} desc={`${stats.reorderCount} insumos por debajo del punto de reorden.`} type={stats.reorderCount > 0 ? "danger" : "success"} />
+            {(stats.reorderCountIng > 0 || stats.reorderCountProd > 0) ? (
+              <>
+                {stats.reorderCountIng > 0 && (
+                  <ActionItem 
+                    icon={AlertTriangle} 
+                    title="Bajo Stock: Insumos" 
+                    desc={`${stats.reorderCountIng} insumos por debajo del punto de reorden.`} 
+                    type="danger" 
+                  />
+                )}
+                {stats.reorderCountProd > 0 && (
+                  <ActionItem 
+                    icon={AlertTriangle} 
+                    title="Bajo Stock: Productos" 
+                    desc={`${stats.reorderCountProd} sabores por debajo del stock mínimo.`} 
+                    type="danger" 
+                  />
+                )}
+              </>
+            ) : (
+              <ActionItem icon={CheckCircle2} title="Stock Saludable" desc="Todos los inventarios están en niveles óptimos." type="success" />
+            )}
             <ActionItem icon={CheckCircle2} title="Sistema Sincronizado" desc="Todos los movimientos han sido procesados correctamente." type="success" />
             <div className="p-6 bg-blue-50 rounded-2xl border border-blue-100 flex flex-col gap-2 mt-4">
               <span className="text-[10px] font-black text-blue-600 uppercase tracking-widest">Consejo del Día</span>

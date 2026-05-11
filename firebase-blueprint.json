@@ -72,7 +72,8 @@
         "stock": { "type": "number" },
         "priceWholesale": { "type": "number" },
         "priceRetail": { "type": "number" },
-        "category": { "type": "string" }
+        "category": { "type": "string" },
+        "reorderPoint": { "type": "number" }
       },
       "required": ["flavor", "stock", "priceWholesale", "priceRetail"]
     },

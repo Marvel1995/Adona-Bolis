@@ -26,6 +26,7 @@ interface Product {
   stock: number;
   priceWholesale: number;
   priceRetail: number;
+  reorderPoint?: number;
 }
 
 export default function InventoryManager() {
@@ -221,6 +222,7 @@ export default function InventoryManager() {
                   <>
                     <th className="px-6 py-4 font-semibold">P. Mayoreo</th>
                     <th className="px-6 py-4 font-semibold">P. Menudeo</th>
+                    <th className="px-6 py-4 font-semibold">Estado</th>
                   </>
                 )}
                 <th className="px-6 py-4 font-semibold">Acciones</th>
@@ -246,6 +248,7 @@ export default function InventoryManager() {
                   unit="unidades" 
                   priceLabel={formatCurrency(item.priceWholesale)}
                   secondaryPrice={formatCurrency(item.priceRetail)}
+                  status={item.stock <= (item.reorderPoint || 0) ? 'low' : 'ok'}
                   onEdit={() => handleEdit(item)}
                   onDelete={() => deleteItem(item.id, 'products')}
                 />
@@ -288,7 +291,10 @@ export default function InventoryManager() {
                 ) : (
                   <>
                     <Input label="Sabor" value={formData.flavor} onChange={v => setFormData({...formData, flavor: v})} required />
-                    <Input label="Stock Inicial" type="number" value={formData.stock} onChange={v => setFormData({...formData, stock: Number(v)})} required />
+                    <div className="grid grid-cols-2 gap-4">
+                      <Input label="Stock Inicial" type="number" value={formData.stock} onChange={v => setFormData({...formData, stock: Number(v)})} required />
+                      <Input label="Punto de Reorden" type="number" value={formData.reorderPoint} onChange={v => setFormData({...formData, reorderPoint: Number(v)})} />
+                    </div>
                     <div className="grid grid-cols-2 gap-4">
                       <Input label="Precio Mayoreo" type="number" value={formData.priceWholesale} onChange={v => setFormData({...formData, priceWholesale: Number(v)})} required />
                       <Input label="Precio Menudeo" type="number" value={formData.priceRetail} onChange={v => setFormData({...formData, priceRetail: Number(v)})} required />
