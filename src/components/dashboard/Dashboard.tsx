@@ -402,15 +402,20 @@ export default function Dashboard() {
     });
 
     const unsubExp = onSnapshot(collection(db, 'expenses'), (expSnap) => {
-      const totalExp = expSnap.docs.reduce((sum, d) => sum + (d.data().amount || 0), 0);
+      const expensesData = expSnap.docs.map(d => d.data() as any);
+      const totalExp = expensesData.reduce((sum, d) => sum + (d.amount || 0), 0);
       
+      // Only expenses paid by the business ("Negocio") should reduce the cash drawer
+      const businessPaidExpenses = expensesData
+        .filter(d => !d.contributor || d.contributor === 'Negocio')
+        .reduce((sum, d) => sum + (d.amount || 0), 0);
+
       // Calculate break-even target: expenses from LAST month
       const now = new Date();
       const firstOfLastMonth = new Date(now.getFullYear(), now.getMonth() - 1, 1);
       const lastOfLastMonth = new Date(now.getFullYear(), now.getMonth(), 0);
       
-      const lastMonthTotal = expSnap.docs.reduce((sum, doc) => {
-        const d = doc.data();
+      const lastMonthTotal = expensesData.reduce((sum, d) => {
         const date = new Date(d.date || '');
         if (date >= firstOfLastMonth && date <= lastOfLastMonth) {
           return sum + (d.amount || 0);
@@ -421,7 +426,7 @@ export default function Dashboard() {
       setStats(prev => ({ 
         ...prev, 
         expenses: totalExp, 
-        cash: prev.cashTotal - totalExp,
+        cash: prev.cashTotal - businessPaidExpenses,
         breakEvenTarget: lastMonthTotal,
         breakEvenPercent: lastMonthTotal > 0 ? Math.min(Math.round((prev.monthIncome / lastMonthTotal) * 100), 100) : 0
       }));
@@ -529,19 +534,24 @@ export default function Dashboard() {
 
       // We need expenses for today too
       getDocs(query(collection(db, 'expenses'))).then(snap => {
+        let totalExpenses = 0;
+        let businessExpenses = 0;
         snap.docs.forEach(d => {
           const data = d.data() as any;
           if (data.date?.split('T')[0] === today) {
-            expenses += data.amount || 0;
+            totalExpenses += data.amount || 0;
+            if (!data.contributor || data.contributor === 'Negocio') {
+              businessExpenses += data.amount || 0;
+            }
           }
         });
         setTodaySummary({
           cashSales,
           cardSales,
-          expenses,
-          expectedCash: cashSales - expenses
+          expenses: totalExpenses,
+          expectedCash: cashSales - businessExpenses
         });
-        setCashOutData(prev => ({ ...prev, actualCash: cashSales - expenses }));
+        setCashOutData(prev => ({ ...prev, actualCash: cashSales - businessExpenses }));
       });
     };
 
@@ -674,11 +684,12 @@ export default function Dashboard() {
 
       {/* Modal Desglose de Costo */}
       {selectedRecipe && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm animate-in fade-in duration-300">
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm animate-in fade-in duration-300" onClick={() => setSelectedRecipe(null)}>
           <motion.div 
             initial={{ opacity: 0, scale: 0.9, y: 20 }}
             animate={{ opacity: 1, scale: 1, y: 0 }}
             className="bg-white rounded-[2.5rem] w-full max-w-2xl max-h-[90vh] overflow-hidden shadow-2xl flex flex-col"
+            onClick={e => e.stopPropagation()}
           >
             <div className="p-8 border-b border-slate-100 flex items-center justify-between bg-slate-50/50 shrink-0">
               <div>
@@ -693,7 +704,7 @@ export default function Dashboard() {
               </button>
             </div>
 
-            <div className="flex-1 overflow-y-auto p-8 custom-scrollbar">
+            <div className="flex-1 overflow-y-auto p-8 min-h-0">
               <div className="grid grid-cols-1 md:grid-cols-2 gap-12 mb-8">
                 <div className="flex flex-col justify-center">
                   <div className="h-[250px] w-full">
@@ -790,12 +801,13 @@ export default function Dashboard() {
       {/* Modal Editar Pedido */}
       <AnimatePresence>
         {isEditModalOpen && selectedSale && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm animate-in fade-in duration-300">
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm animate-in fade-in duration-300" onClick={() => { setIsEditModalOpen(false); setSelectedSale(null); }}>
             <motion.div 
               initial={{ opacity: 0, scale: 0.9, y: 20 }}
               animate={{ opacity: 1, scale: 1, y: 0 }}
               exit={{ opacity: 0, scale: 0.9, y: 20 }}
               className="bg-white rounded-[2.5rem] w-full max-w-2xl max-h-[90vh] overflow-hidden shadow-2xl flex flex-col"
+              onClick={e => e.stopPropagation()}
             >
               <div className="p-8 border-b border-slate-100 flex items-center justify-between bg-slate-50/50 shrink-0">
                 <div>
@@ -813,7 +825,7 @@ export default function Dashboard() {
                 </button>
               </div>
 
-              <form onSubmit={handleUpdateSale} className="flex-1 overflow-y-auto p-8 space-y-8 custom-scrollbar">
+              <form onSubmit={handleUpdateSale} className="flex-1 overflow-y-auto p-8 space-y-8 min-h-0">
                 <div className="grid grid-cols-2 gap-4">
                   <div className="bg-blue-50 p-6 rounded-3xl border border-blue-100">
                     <p className="text-[10px] font-black text-blue-600 uppercase tracking-widest mb-1">Cliente</p>
@@ -899,12 +911,13 @@ export default function Dashboard() {
       {/* Modal Corte de Caja */}
       <AnimatePresence>
         {isCashOutModalOpen && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm animate-in fade-in duration-300">
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm animate-in fade-in duration-300" onClick={() => setIsCashOutModalOpen(false)}>
             <motion.div 
               initial={{ opacity: 0, scale: 0.9, y: 20 }}
               animate={{ opacity: 1, scale: 1, y: 0 }}
               exit={{ opacity: 0, scale: 0.9, y: 20 }}
               className="bg-white rounded-[2.5rem] w-full max-w-xl max-h-[90vh] overflow-hidden shadow-2xl flex flex-col"
+              onClick={e => e.stopPropagation()}
             >
               <div className="p-8 border-b border-slate-100 flex items-center justify-between bg-slate-50/50 shrink-0">
                 <div>
@@ -922,7 +935,7 @@ export default function Dashboard() {
                 </button>
               </div>
 
-              <form onSubmit={handleSaveCashOut} className="flex-1 overflow-y-auto p-8 space-y-8 custom-scrollbar">
+              <form onSubmit={handleSaveCashOut} className="flex-1 overflow-y-auto p-8 space-y-8 min-h-0">
                 <div className="grid grid-cols-2 gap-4">
                   <div className="bg-slate-50 p-5 rounded-3xl border border-slate-100">
                     <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Ventas Efectivo</p>
@@ -1017,11 +1030,12 @@ export default function Dashboard() {
 
       {/* Modal Detalle de Ventas (Piezas) */}
       {isSalesDetailModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm animate-in fade-in duration-300">
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm animate-in fade-in duration-300" onClick={() => setIsSalesDetailModalOpen(false)}>
           <motion.div 
             initial={{ opacity: 0, scale: 0.9, y: 20 }}
             animate={{ opacity: 1, scale: 1, y: 0 }}
             className="bg-white rounded-[2.5rem] w-full max-w-4xl max-h-[90vh] overflow-hidden shadow-2xl flex flex-col"
+            onClick={e => e.stopPropagation()}
           >
             <div className="p-8 border-b border-slate-100 flex items-center justify-between bg-slate-50/50 shrink-0">
               <div>
@@ -1057,7 +1071,7 @@ export default function Dashboard() {
               </div>
             </div>
 
-            <div className="flex-1 overflow-y-auto p-8 custom-scrollbar">
+            <div className="flex-1 overflow-y-auto p-8 min-h-0">
               <div className="mb-8 grid grid-cols-1 md:grid-cols-3 gap-6">
                 <div className="bg-emerald-50 p-6 rounded-3xl border border-emerald-100">
                   <p className="text-[10px] font-black text-emerald-600 uppercase tracking-widest mb-1">Total de Piezas</p>

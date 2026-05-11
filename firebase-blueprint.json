@@ -125,15 +125,17 @@
     },
     "Expense": {
       "title": "Expense",
-      "description": "Business costs",
+      "description": "Business costs and partner transactions",
       "type": "object",
       "properties": {
         "date": { "type": "string", "format": "date-time" },
         "description": { "type": "string" },
         "amount": { "type": "number" },
-        "type": { "type": "string", "enum": ["fixed", "variable"] }
+        "type": { "type": "string", "enum": ["fixed", "variable", "withdrawal"] },
+        "contributor": { "type": "string", "enum": ["Negocio", "Mauricio", "Silvia", "Alexis"] },
+        "isInvestmentWithdrawal": { "type": "boolean" }
       },
-      "required": ["date", "description", "amount", "type"]
+      "required": ["date", "description", "amount", "type", "contributor"]
     }
   },
   "firestore": {
