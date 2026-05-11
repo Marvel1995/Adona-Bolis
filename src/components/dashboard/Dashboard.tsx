@@ -9,10 +9,12 @@ import {
   Tooltip, ResponsiveContainer, AreaChart, Area,
   PieChart, Pie, Cell, Legend
 } from 'recharts';
-import { collection, getDocs, getDoc, doc, onSnapshot } from 'firebase/firestore';
-import { db } from '../../lib/firebase';
+import { collection, getDocs, getDoc, doc, onSnapshot, runTransaction, query, addDoc } from 'firebase/firestore';
+import { db, handleFirestoreError, OperationType } from '../../lib/firebase';
 import { formatCurrency, cn } from '../../lib/utils';
-import { motion } from 'motion/react';
+import { motion, AnimatePresence } from 'motion/react';
+
+const COLORS = ['#2563eb', '#10b981', '#f59e0b', '#f43f5e', '#8b5cf6', '#06b6d4'];
 
 export default function Dashboard() {
   const [stats, setStats] = useState({
@@ -49,11 +51,122 @@ export default function Dashboard() {
   const [timeRange, setTimeRange] = useState<'7d' | '1m' | '3m' | '1y'>('7d');
   const [selectedRecipe, setSelectedRecipe] = useState<any | null>(null);
   const [isSalesDetailModalOpen, setIsSalesDetailModalOpen] = useState(false);
+  const [isEditModalOpen, setIsEditModalOpen] = useState(false);
+  const [isCashOutModalOpen, setIsCashOutModalOpen] = useState(false);
+  const [selectedSale, setSelectedSale] = useState<any | null>(null);
+  const [cashOutData, setCashOutData] = useState({
+    actualCash: 0,
+    nextDayFund: 0,
+    notes: ''
+  });
+  const [todaySummary, setTodaySummary] = useState({
+    cashSales: 0,
+    cardSales: 0,
+    expenses: 0,
+    expectedCash: 0
+  });
   const [salesDetailRange, setSalesDetailRange] = useState<'week' | 'month' | 'year'>('week');
   const [salesDetailChartData, setSalesDetailChartData] = useState<any[]>([]);
   const [allSales, setAllSales] = useState<any[]>([]);
+  const [customers, setCustomers] = useState<any[]>([]);
 
-  const COLORS = ['#2563eb', '#10b981', '#f59e0b', '#f43f5e', '#8b5cf6', '#06b6d4'];
+  const handleUpdateSale = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!selectedSale) return;
+
+    try {
+      await runTransaction(db, async (transaction) => {
+        const saleRef = doc(db, 'sales', selectedSale.id);
+        const originalSaleDoc = await transaction.get(saleRef);
+        if (!originalSaleDoc.exists()) throw new Error("La venta no existe");
+        const originalSale = originalSaleDoc.data();
+
+        const oldTotal = originalSale.total || 0;
+        const newTotal = selectedSale.total || 0;
+        const oldCustomerId = originalSale.customerId;
+        const newCustomerId = selectedSale.customerId;
+        const oldStatus = originalSale.status;
+        const newStatus = selectedSale.status;
+
+        // 1. PERFORM ALL READS FIRST
+        let oldCustDoc = null;
+        let newCustDoc = null;
+        const oldCustRef = oldCustomerId ? doc(db, 'customers', oldCustomerId) : null;
+        const newCustRef = newCustomerId ? doc(db, 'customers', newCustomerId) : null;
+
+        // Condition to check if old status was balance-affecting
+        const wasAffectingBalance = oldStatus === 'pending' || oldStatus === 'scheduled';
+        // Condition to check if new status is balance-affecting
+        const willAffectBalance = newStatus === 'pending' || newStatus === 'scheduled';
+
+        if (wasAffectingBalance && oldCustRef) {
+          oldCustDoc = await transaction.get(oldCustRef);
+        }
+
+        if (willAffectBalance && newCustRef) {
+          if (newCustRef.id === oldCustRef?.id) {
+            newCustDoc = oldCustDoc;
+          } else {
+            newCustDoc = await transaction.get(newCustRef);
+          }
+        }
+
+        // 2. PERFORM ALL WRITES SECOND
+        if (oldCustRef?.id === newCustRef?.id && oldCustRef) {
+          // Same customer logic
+          if (oldCustDoc?.exists()) {
+            const currentBalance = oldCustDoc.data()?.balance || 0;
+            let finalBalance = currentBalance;
+            if (wasAffectingBalance) finalBalance -= oldTotal;
+            if (willAffectBalance) finalBalance += newTotal;
+            transaction.update(oldCustRef, { balance: Math.max(0, finalBalance) });
+          }
+        } else {
+          // Different customers logic
+          if (wasAffectingBalance && oldCustRef && oldCustDoc?.exists()) {
+            const currentBalance = oldCustDoc.data()?.balance || 0;
+            transaction.update(oldCustRef, { balance: Math.max(0, currentBalance - oldTotal) });
+          }
+          if (willAffectBalance && newCustRef && newCustDoc?.exists()) {
+            const currentBalance = newCustDoc.data()?.balance || 0;
+            transaction.update(newCustRef, { balance: currentBalance + newTotal });
+          }
+        }
+
+        let newCustomerName = originalSale.customerName;
+        let newCustomerPhone = originalSale.customerPhone;
+        if (newCustomerId !== oldCustomerId) {
+          if (newCustomerId) {
+            const cust = customers.find(c => c.id === newCustomerId);
+            newCustomerName = cust?.name || 'Venta de Mostrador';
+            newCustomerPhone = cust?.phone || '';
+          } else {
+            newCustomerName = 'Venta de Mostrador';
+            newCustomerPhone = '';
+          }
+        }
+
+        transaction.update(saleRef, {
+          customerId: newCustomerId,
+          customerName: newCustomerName,
+          customerPhone: newCustomerPhone,
+          paymentMethod: selectedSale.paymentMethod,
+          status: newStatus,
+          deliveryDate: selectedSale.deliveryDate || '',
+          deliveryTime: selectedSale.deliveryTime || '',
+          deliveryAddress: selectedSale.deliveryAddress || '',
+          updatedAt: new Date().toISOString()
+        });
+      });
+
+      setIsEditModalOpen(false);
+      setSelectedSale(null);
+      alert('Venta actualizada correctamente');
+    } catch (err: any) {
+      alert(`Error al actualizar venta: ${err.message}`);
+      handleFirestoreError(err, OperationType.WRITE, `sales/${selectedSale.id}`);
+    }
+  };
 
   useEffect(() => {
     if (allSales.length === 0) return;
@@ -129,10 +242,11 @@ export default function Dashboard() {
     // Basic data fetching
     const unsubRecipes = onSnapshot(collection(db, 'recipes'), (snap) => setRecipes(snap.docs.map(d => ({ id: d.id, ...d.data() }))));
     const unsubIngs = onSnapshot(collection(db, 'ingredients'), (snap) => setIngredients(snap.docs.map(d => ({ id: d.id, ...d.data() }))));
+    const unsubCusts = onSnapshot(collection(db, 'customers'), (snap) => setCustomers(snap.docs.map(d => ({ id: d.id, ...d.data() }))));
     const unsubProds = onSnapshot(collection(db, 'products'), (snap) => setProducts(snap.docs.map(d => ({ id: d.id, ...d.data() }))));
 
     const unsubSales = onSnapshot(collection(db, 'sales'), (salesSnap) => {
-      const salesData = salesSnap.docs.map(d => ({ id: d.id, ...d.data() }));
+      const salesData = salesSnap.docs.map(d => ({ id: d.id, ...d.data() })) as any[];
       setAllSales(salesData);
       
       const now = new Date();
@@ -177,6 +291,23 @@ export default function Dashboard() {
       setScheduledOrders(scheduled);
       
       // Update stats related to sales
+      let cashTotal = 0;
+      let cardTotal = 0;
+      let pendingTotal = 0;
+
+      salesData.forEach(sale => {
+        const total = sale.total || 0;
+        if (sale.status === 'paid') {
+          if (sale.paymentMethod === 'tarjeta') {
+            cardTotal += total;
+          } else {
+            cashTotal += total;
+          }
+        } else {
+          pendingTotal += total;
+        }
+      });
+
       setStats(prev => {
         const goalPercent = prev.goal > 0 ? Math.min(Math.round((monthSales / prev.goal) * 100), 100) : 0;
         const breakEvenPercent = prev.breakEvenTarget > 0 ? Math.min(Math.round((monthSales / prev.breakEvenTarget) * 100), 100) : 0;
@@ -185,6 +316,10 @@ export default function Dashboard() {
           ...prev,
           income: totalSalesVolume,
           monthIncome: monthSales,
+          cashTotal,
+          cardTotal,
+          pendingTotal,
+          cash: cashTotal - prev.expenses,
           goalPercent,
           breakEvenPercent
         };
@@ -286,6 +421,7 @@ export default function Dashboard() {
       setStats(prev => ({ 
         ...prev, 
         expenses: totalExp, 
+        cash: prev.cashTotal - totalExp,
         breakEvenTarget: lastMonthTotal,
         breakEvenPercent: lastMonthTotal > 0 ? Math.min(Math.round((prev.monthIncome / lastMonthTotal) * 100), 100) : 0
       }));
@@ -373,44 +509,66 @@ export default function Dashboard() {
     setRecipePerformance(performance);
   }, [recipes, ingredients, stats.mlPerBolis]);
 
-  // Effect to handle cash calculation when both sales and expenses change
   useEffect(() => {
-    const calculateCash = async () => {
-      const salesSnap = await getDocs(collection(db, 'sales'));
-      const expSnap = await getDocs(collection(db, 'expenses'));
-      
-      let incomePaid = 0;
-      let cashTotal = 0;
-      let cardTotal = 0;
-      let pendingTotal = 0;
+    // Calculate today's summary for cash out
+    const calculateTodaySummary = () => {
+      const today = new Date().toISOString().split('T')[0];
+      let cashSales = 0;
+      let cardSales = 0;
+      let expenses = 0;
 
-      salesSnap.docs.forEach(d => {
-        const data = d.data();
-        const total = data.total || 0;
-        if (data.status === 'paid') {
-          incomePaid += total;
-          if (data.paymentMethod === 'tarjeta') {
-            cardTotal += total;
+      allSales.forEach(sale => {
+        if (sale.date?.split('T')[0] === today && sale.status === 'paid') {
+          if (sale.paymentMethod === 'tarjeta') {
+            cardSales += sale.total || 0;
           } else {
-            cashTotal += total;
+            cashSales += sale.total || 0;
           }
-        } else {
-          pendingTotal += total;
         }
       });
-        
-      const totalExp = expSnap.docs.reduce((sum, d) => sum + (d.data().amount || 0), 0);
-      
-      setStats(prev => ({ 
-        ...prev, 
-        cash: cashTotal - totalExp, 
-        cashTotal,
-        cardTotal,
-        pendingTotal
-      }));
+
+      // We need expenses for today too
+      getDocs(query(collection(db, 'expenses'))).then(snap => {
+        snap.docs.forEach(d => {
+          const data = d.data() as any;
+          if (data.date?.split('T')[0] === today) {
+            expenses += data.amount || 0;
+          }
+        });
+        setTodaySummary({
+          cashSales,
+          cardSales,
+          expenses,
+          expectedCash: cashSales - expenses
+        });
+        setCashOutData(prev => ({ ...prev, actualCash: cashSales - expenses }));
+      });
     };
-    calculateCash();
-  }, [stats.income, stats.expenses]);
+
+    if (allSales.length > 0) {
+      calculateTodaySummary();
+    }
+  }, [allSales, isCashOutModalOpen]);
+
+  const handleSaveCashOut = async (e: React.FormEvent) => {
+    e.preventDefault();
+    try {
+      const cashOut = {
+        date: new Date().toISOString(),
+        ...todaySummary,
+        ...cashOutData,
+        difference: cashOutData.actualCash - todaySummary.expectedCash,
+        withdrawal: Math.max(0, cashOutData.actualCash - cashOutData.nextDayFund)
+      };
+
+      await addDoc(collection(db, 'cash_outs'), cashOut);
+      alert('Corte de caja guardado exitosamente');
+      setIsCashOutModalOpen(false);
+    } catch (err: any) {
+      alert(`Error al guardar corte: ${err.message}`);
+      handleFirestoreError(err, OperationType.WRITE, 'cash_outs');
+    }
+  };
 
   return (
     <div className="space-y-8 animate-in fade-in duration-500">
@@ -422,9 +580,15 @@ export default function Dashboard() {
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-        <div className="bg-white p-6 rounded-3xl shadow-sm border border-slate-200">
+        <div className="bg-white p-6 rounded-3xl shadow-sm border border-slate-200 group">
           <div className="flex justify-between mb-4">
             <div className="p-3 rounded-2xl border bg-blue-50 text-blue-600 border-blue-100"><DollarSign className="w-6 h-6" /></div>
+            <button 
+              onClick={() => setIsCashOutModalOpen(true)}
+              className="text-[10px] font-black text-blue-600 bg-blue-50 px-3 py-1 rounded-full border border-blue-100 hover:bg-blue-600 hover:text-white transition-all active:scale-95"
+            >
+              REALIZAR CORTE
+            </button>
           </div>
           <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Efectivo en Caja</p>
           <p className="text-2xl font-black text-slate-900 mt-1">{formatCurrency(stats.cash)}</p>
@@ -622,6 +786,234 @@ export default function Dashboard() {
           </motion.div>
         </div>
       )}
+
+      {/* Modal Editar Pedido */}
+      <AnimatePresence>
+        {isEditModalOpen && selectedSale && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm animate-in fade-in duration-300">
+            <motion.div 
+              initial={{ opacity: 0, scale: 0.9, y: 20 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.9, y: 20 }}
+              className="bg-white rounded-[2.5rem] w-full max-w-2xl max-h-[90vh] overflow-hidden shadow-2xl flex flex-col"
+            >
+              <div className="p-8 border-b border-slate-100 flex items-center justify-between bg-slate-50/50 shrink-0">
+                <div>
+                  <div className="flex items-center gap-3 mb-2">
+                    <span className="text-[10px] font-black text-blue-600 uppercase tracking-widest bg-blue-50 px-3 py-1 rounded-full">Gestión de Pedido</span>
+                    <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest bg-slate-100 px-3 py-1 rounded-full">Logística</span>
+                  </div>
+                  <h3 className="text-2xl font-black text-slate-900 uppercase leading-none">Modificar Entrega</h3>
+                </div>
+                <button 
+                  onClick={() => { setIsEditModalOpen(false); setSelectedSale(null); }}
+                  className="p-3 bg-white border border-slate-200 rounded-2xl text-slate-400 hover:text-slate-900 transition-all hover:shadow-md"
+                >
+                  <X className="w-6 h-6" />
+                </button>
+              </div>
+
+              <form onSubmit={handleUpdateSale} className="flex-1 overflow-y-auto p-8 space-y-8 custom-scrollbar">
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="bg-blue-50 p-6 rounded-3xl border border-blue-100">
+                    <p className="text-[10px] font-black text-blue-600 uppercase tracking-widest mb-1">Cliente</p>
+                    <p className="text-xl font-black text-blue-700 truncate">{selectedSale.customerName}</p>
+                  </div>
+                  <div className="bg-slate-50 p-6 rounded-3xl border border-slate-100">
+                    <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Monto del Pedido</p>
+                    <p className="text-xl font-black text-slate-700">{formatCurrency(selectedSale.total)}</p>
+                  </div>
+                </div>
+
+                <div className="space-y-6">
+                  <h4 className="font-black text-slate-400 uppercase text-[10px] tracking-widest border-b border-slate-50 pb-2 flex items-center gap-2">
+                    <Clock className="w-3 h-3" /> Datos de Entrega
+                  </h4>
+                  
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                    <div className="space-y-2">
+                      <label className="text-[10px] font-black text-slate-500 uppercase ml-1">Fecha de Entrega</label>
+                      <input 
+                        type="date"
+                        required
+                        value={selectedSale.deliveryDate || ''}
+                        onChange={e => setSelectedSale({...selectedSale, deliveryDate: e.target.value})}
+                        className="w-full bg-slate-50 rounded-2xl border-2 border-transparent text-sm font-bold p-4 focus:bg-white focus:border-blue-600 transition-all outline-none"
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <label className="text-[10px] font-black text-slate-500 uppercase ml-1">Horario de Entrega</label>
+                      <input 
+                        type="text"
+                        placeholder="Ej: 10:00 AM - 12:00 PM"
+                        value={selectedSale.deliveryTime || ''}
+                        onChange={e => setSelectedSale({...selectedSale, deliveryTime: e.target.value})}
+                        className="w-full bg-slate-50 rounded-2xl border-2 border-transparent text-sm font-bold p-4 focus:bg-white focus:border-blue-600 transition-all outline-none"
+                      />
+                    </div>
+                  </div>
+
+                  <div className="space-y-2">
+                    <label className="text-[10px] font-black text-slate-500 uppercase ml-1 block">Dirección de Entrega</label>
+                    <div className="relative">
+                      <MapPin className="absolute left-4 top-5 text-slate-300 w-5 h-5" />
+                      <textarea 
+                        rows={3}
+                        value={selectedSale.deliveryAddress || ''}
+                        onChange={e => setSelectedSale({...selectedSale, deliveryAddress: e.target.value})}
+                        className="w-full bg-slate-50 rounded-2xl border-2 border-transparent text-sm font-bold p-4 pl-12 focus:bg-white focus:border-blue-600 transition-all outline-none resize-none"
+                        placeholder="Ingresa la dirección completa..."
+                      />
+                    </div>
+                  </div>
+
+                  <div className="space-y-2">
+                    <label className="text-[10px] font-black text-slate-500 uppercase ml-1">Estado del Pedido</label>
+                    <select 
+                      value={selectedSale.status} 
+                      onChange={e => setSelectedSale({...selectedSale, status: e.target.value})}
+                      className="w-full bg-slate-50 rounded-2xl border-2 border-transparent text-sm font-bold p-4 focus:bg-white focus:border-blue-600 transition-all outline-none"
+                    >
+                      <option value="scheduled">Agendado (Pedido)</option>
+                      <option value="paid">Pagado (Entregado)</option>
+                      <option value="pending">Pendiente (Sin pagar)</option>
+                      <option value="cancelled">Cancelado</option>
+                    </select>
+                  </div>
+                </div>
+
+                <div className="pt-4">
+                  <button 
+                    type="submit"
+                    className="w-full bg-slate-900 hover:bg-black text-white font-black py-5 rounded-2xl transition-all shadow-xl active:scale-95 flex items-center justify-center gap-3 uppercase text-xs tracking-[0.2em]"
+                  >
+                    Actualizar Pedido <TrendingUp className="w-4 h-4" />
+                  </button>
+                </div>
+              </form>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+ 
+      {/* Modal Corte de Caja */}
+      <AnimatePresence>
+        {isCashOutModalOpen && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm animate-in fade-in duration-300">
+            <motion.div 
+              initial={{ opacity: 0, scale: 0.9, y: 20 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.9, y: 20 }}
+              className="bg-white rounded-[2.5rem] w-full max-w-xl max-h-[90vh] overflow-hidden shadow-2xl flex flex-col"
+            >
+              <div className="p-8 border-b border-slate-100 flex items-center justify-between bg-slate-50/50 shrink-0">
+                <div>
+                  <div className="flex items-center gap-3 mb-2">
+                    <span className="text-[10px] font-black text-emerald-600 uppercase tracking-widest bg-emerald-50 px-3 py-1 rounded-full">Cierre Diario</span>
+                    <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest bg-slate-100 px-3 py-1 rounded-full">{new Date().toLocaleDateString('es-MX', { day: 'numeric', month: 'long' })}</span>
+                  </div>
+                  <h3 className="text-2xl font-black text-slate-900 uppercase leading-none">Corte de Caja</h3>
+                </div>
+                <button 
+                  onClick={() => setIsCashOutModalOpen(false)}
+                  className="p-3 bg-white border border-slate-200 rounded-2xl text-slate-400 hover:text-slate-900 transition-all hover:shadow-md"
+                >
+                  <X className="w-6 h-6" />
+                </button>
+              </div>
+
+              <form onSubmit={handleSaveCashOut} className="flex-1 overflow-y-auto p-8 space-y-8 custom-scrollbar">
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="bg-slate-50 p-5 rounded-3xl border border-slate-100">
+                    <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Ventas Efectivo</p>
+                    <p className="text-xl font-black text-slate-900">{formatCurrency(todaySummary.cashSales)}</p>
+                  </div>
+                  <div className="bg-slate-50 p-5 rounded-3xl border border-slate-100">
+                    <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Gastos Hoy</p>
+                    <p className="text-xl font-black text-rose-600">-{formatCurrency(todaySummary.expenses)}</p>
+                  </div>
+                </div>
+
+                <div className="p-6 bg-blue-600 rounded-[2rem] text-white shadow-xl shadow-blue-100 flex justify-between items-center">
+                  <div>
+                    <p className="text-[10px] font-black text-blue-200 uppercase tracking-widest mb-1">Efectivo Esperado</p>
+                    <p className="text-3xl font-black">{formatCurrency(todaySummary.expectedCash)}</p>
+                  </div>
+                  <CheckCircle2 className="w-10 h-10 text-blue-300 opacity-50" />
+                </div>
+
+                <div className="space-y-6">
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                    <div className="space-y-2">
+                      <label className="text-[10px] font-black text-slate-500 uppercase ml-1">Efectivo Real en Caja</label>
+                      <input 
+                        type="number"
+                        required
+                        value={cashOutData.actualCash || ''}
+                        onChange={e => setCashOutData({...cashOutData, actualCash: Number(e.target.value)})}
+                        placeholder="Monto contado..."
+                        className="w-full bg-slate-50 rounded-2xl border-2 border-transparent text-lg font-black p-4 focus:bg-white focus:border-blue-600 transition-all outline-none"
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <label className="text-[10px] font-black text-slate-500 uppercase ml-1">Fondo para Mañana</label>
+                      <input 
+                        type="number"
+                        required
+                        value={cashOutData.nextDayFund || ''}
+                        onChange={e => setCashOutData({...cashOutData, nextDayFund: Number(e.target.value)})}
+                        placeholder="Cambio que se queda..."
+                        className="w-full bg-slate-50 rounded-2xl border-2 border-transparent text-lg font-black p-4 focus:bg-white focus:border-emerald-600 transition-all outline-none"
+                      />
+                    </div>
+                  </div>
+
+                  <div className="space-y-2">
+                    <label className="text-[10px] font-black text-slate-500 uppercase ml-1">Notas del Cierre</label>
+                    <textarea 
+                      rows={2}
+                      value={cashOutData.notes}
+                      onChange={e => setCashOutData({...cashOutData, notes: e.target.value})}
+                      className="w-full bg-slate-50 rounded-2xl border-2 border-transparent text-sm font-bold p-4 focus:bg-white focus:border-blue-600 transition-all outline-none resize-none"
+                      placeholder="Alguna observación sobre el dinero..."
+                    />
+                  </div>
+
+                  {cashOutData.actualCash !== todaySummary.expectedCash && (
+                    <div className={cn(
+                      "p-4 rounded-2xl border flex items-center gap-3",
+                      cashOutData.actualCash > todaySummary.expectedCash ? "bg-emerald-50 border-emerald-100 text-emerald-700" : "bg-rose-50 border-rose-100 text-rose-700"
+                    )}>
+                      <AlertTriangle className="w-5 h-5" />
+                      <p className="text-xs font-bold uppercase tracking-tight">
+                        Diferencia detectada: {formatCurrency(Math.abs(cashOutData.actualCash - todaySummary.expectedCash))} 
+                        {cashOutData.actualCash > todaySummary.expectedCash ? " (Sobrante)" : " (Faltante)"}
+                      </p>
+                    </div>
+                  )}
+
+                  <div className="p-6 bg-slate-900 rounded-[2rem] text-white flex justify-between items-center">
+                    <div>
+                      <p className="text-[10px] font-black text-slate-500 uppercase tracking-widest mb-1">Retiro Sugerido</p>
+                      <p className="text-2xl font-black">{formatCurrency(Math.max(0, cashOutData.actualCash - cashOutData.nextDayFund))}</p>
+                    </div>
+                    <TrendingDown className="w-8 h-8 text-slate-700" />
+                  </div>
+                </div>
+
+                <div className="pt-4">
+                  <button 
+                    type="submit"
+                    className="w-full bg-blue-600 hover:bg-blue-700 text-white font-black py-5 rounded-[1.5rem] shadow-xl shadow-blue-100 transition-all active:scale-95 flex items-center justify-center gap-3 uppercase text-xs tracking-widest"
+                  >
+                    Guardar y Cerrar Jornada <CheckCircle2 className="w-4 h-4" />
+                  </button>
+                </div>
+              </form>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
 
       {/* Modal Detalle de Ventas (Piezas) */}
       {isSalesDetailModalOpen && (
@@ -952,12 +1344,19 @@ export default function Dashboard() {
           </div>
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
             {scheduledOrders.map((order) => (
-              <div key={order.id} className="bg-slate-50 border border-slate-100 p-5 rounded-2xl flex flex-col justify-between">
+              <button 
+                key={order.id} 
+                onClick={() => {
+                  setSelectedSale({ ...order }); // Clone object to avoid direct state mutation
+                  setIsEditModalOpen(true);
+                }}
+                className="group bg-slate-50 border border-slate-100 p-5 rounded-2xl flex flex-col justify-between text-left transition-all hover:bg-white hover:border-blue-200 hover:shadow-xl hover:-translate-y-1 active:scale-95"
+              >
                 <div>
                   <div className="flex items-center justify-between mb-3">
                     <span className="text-[10px] font-black text-amber-600 uppercase tracking-widest">{order.deliveryDate}</span>
                     {order.deliveryTime && (
-                      <div className="flex items-center gap-1 text-[10px] font-bold text-slate-400 bg-white px-2 py-0.5 rounded-lg border border-slate-100">
+                      <div className="flex items-center gap-1 text-[10px] font-bold text-slate-400 bg-white px-2 py-0.5 rounded-lg border border-slate-100 group-hover:bg-amber-50 group-hover:text-amber-600 group-hover:border-amber-100 transition-colors">
                         <Clock className="w-3 h-3" />
                         {order.deliveryTime}
                       </div>
@@ -965,7 +1364,7 @@ export default function Dashboard() {
                   </div>
                   <div className="flex items-center gap-2 mb-2">
                     <User className="w-4 h-4 text-slate-400" />
-                    <p className="font-bold text-slate-900 truncate">{order.customerName}</p>
+                    <p className="font-bold text-slate-900 truncate group-hover:text-blue-600">{order.customerName}</p>
                   </div>
                   <div className="flex items-start gap-2 mb-4">
                     <MapPin className="w-4 h-4 text-slate-300 mt-0.5" />
@@ -976,7 +1375,7 @@ export default function Dashboard() {
                    <div className="text-[10px] font-black text-slate-400 uppercase">Total Pedido</div>
                    <div className="font-black text-slate-900">{formatCurrency(order.total)}</div>
                 </div>
-              </div>
+              </button>
             ))}
           </div>
         </div>

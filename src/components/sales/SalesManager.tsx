@@ -417,8 +417,6 @@ export default function SalesManager() {
         if (!originalSaleDoc.exists()) throw new Error("La venta no existe");
         const originalSale = originalSaleDoc.data();
 
-        // 1. HANDLE CUSTOMER BALANCE CHANGES
-        // If customer changed, or status changed from paid to pending/scheduled, or total changed
         const oldTotal = originalSale.total || 0;
         const newTotal = selectedSale.total || 0;
         const oldCustomerId = originalSale.customerId;
@@ -426,21 +424,48 @@ export default function SalesManager() {
         const oldStatus = originalSale.status;
         const newStatus = selectedSale.status;
 
-        // Revert old customer balance if it was affecting it
-        if ((oldStatus === 'pending' || oldStatus === 'scheduled') && oldCustomerId) {
-          const oldCustRef = doc(db, 'customers', oldCustomerId);
-          const oldCustDoc = await transaction.get(oldCustRef);
-          if (oldCustDoc.exists()) {
-            transaction.update(oldCustRef, { balance: Math.max(0, (oldCustDoc.data().balance || 0) - oldTotal) });
+        // 1. PERFORM ALL READS FIRST
+        let oldCustDoc = null;
+        let newCustDoc = null;
+        const oldCustRef = oldCustomerId ? doc(db, 'customers', oldCustomerId) : null;
+        const newCustRef = newCustomerId ? doc(db, 'customers', newCustomerId) : null;
+
+        // Condition to check if old status was balance-affecting
+        const wasAffectingBalance = oldStatus === 'pending' || oldStatus === 'scheduled';
+        // Condition to check if new status is balance-affecting
+        const willAffectBalance = newStatus === 'pending' || newStatus === 'scheduled';
+
+        if (wasAffectingBalance && oldCustRef) {
+          oldCustDoc = await transaction.get(oldCustRef);
+        }
+
+        if (willAffectBalance && newCustRef) {
+          if (newCustRef.id === oldCustRef?.id) {
+            newCustDoc = oldCustDoc;
+          } else {
+            newCustDoc = await transaction.get(newCustRef);
           }
         }
 
-        // Apply new customer balance if it should affect it
-        if ((newStatus === 'pending' || newStatus === 'scheduled') && newCustomerId) {
-          const newCustRef = doc(db, 'customers', newCustomerId);
-          const newCustDoc = await transaction.get(newCustRef);
-          if (newCustDoc.exists()) {
-            transaction.update(newCustRef, { balance: (newCustDoc.data().balance || 0) + newTotal });
+        // 2. PERFORM ALL WRITES SECOND
+        if (oldCustRef?.id === newCustRef?.id && oldCustRef) {
+          // Same customer logic
+          if (oldCustDoc?.exists()) {
+            const currentBalance = oldCustDoc.data()?.balance || 0;
+            let finalBalance = currentBalance;
+            if (wasAffectingBalance) finalBalance -= oldTotal;
+            if (willAffectBalance) finalBalance += newTotal;
+            transaction.update(oldCustRef, { balance: Math.max(0, finalBalance) });
+          }
+        } else {
+          // Different customers logic
+          if (wasAffectingBalance && oldCustRef && oldCustDoc?.exists()) {
+            const currentBalance = oldCustDoc.data()?.balance || 0;
+            transaction.update(oldCustRef, { balance: Math.max(0, currentBalance - oldTotal) });
+          }
+          if (willAffectBalance && newCustRef && newCustDoc?.exists()) {
+            const currentBalance = newCustDoc.data()?.balance || 0;
+            transaction.update(newCustRef, { balance: currentBalance + newTotal });
           }
         }
 
