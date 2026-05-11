@@ -137,9 +137,43 @@
         "isInvestmentWithdrawal": { "type": "boolean" }
       },
       "required": ["date", "description", "amount", "type", "contributor"]
+    },
+    "Task": {
+      "title": "Task",
+      "description": "Business task or to-do item",
+      "type": "object",
+      "properties": {
+        "title": { "type": "string" },
+        "description": { "type": "string" },
+        "dueDate": { "type": "string", "format": "date-time" },
+        "assignee": { "type": "string", "enum": ["General", "Mauricio", "Silvia", "Alexis"] },
+        "status": { "type": "string", "enum": ["pending", "completed"] },
+        "priority": { "type": "string", "enum": ["low", "medium", "high"] },
+        "completedAt": { "type": "string", "format": "date-time" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["title", "dueDate", "assignee", "status"]
+    },
+    "Note": {
+      "title": "Note",
+      "description": "General purpose shared note",
+      "type": "object",
+      "properties": {
+        "content": { "type": "string" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["content"]
     }
   },
   "firestore": {
+    "/tasks/{taskId}": {
+      "schema": "Task",
+      "description": "Collection of tasks"
+    },
+    "/settings/notes": {
+      "schema": "Note",
+      "description": "Global shared notepad content"
+    },
     "/ingredients/{ingredientId}": {
       "schema": "Ingredient",
       "description": "Ingredients inventory"

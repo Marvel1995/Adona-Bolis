@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { 
   Menu, X, Home, Package, ShoppingCart, 
   Users, DollarSign, Settings as SettingsIcon, LogOut, ChevronRight,
-  Layers, ClipboardList, LayoutDashboard, Truck, Cloud, Heart
+  Layers, ClipboardList, LayoutDashboard, Truck, Cloud, Heart, ListTodo
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { auth, db } from '../../lib/firebase';
@@ -18,6 +18,7 @@ interface NavItem {
 
 const navItems: NavItem[] = [
   { id: 'dashboard', label: 'Dashboard 360', icon: LayoutDashboard },
+  { id: 'tasks', label: 'Tareas y Notas', icon: ListTodo },
   { id: 'production', label: 'Producción', icon: Layers },
   { id: 'recipes', label: 'Recetario', icon: ClipboardList },
   { id: 'inventory', label: 'Inventario', icon: Package },

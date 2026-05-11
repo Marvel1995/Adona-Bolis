@@ -34,10 +34,23 @@ service cloud.firestore {
     }
 
     function isValidProduct(data) {
-      return data.flavor is string && data.flavor.size() > 0
+      return data.flavor is string && data.flavor.size() > 0 && data.flavor.size() < 100
           && data.stock is number
           && data.priceWholesale is number && data.priceWholesale >= 0
-          && data.priceRetail is number && data.priceRetail >= 0;
+          && data.priceRetail is number && data.priceRetail >= 0
+          && (data.get('reorderPoint', 0) is number);
+    }
+
+    function isValidTask(data) {
+      return data.title is string && data.title.size() > 0 && data.title.size() < 200
+          && data.dueDate is string && data.dueDate.size() > 0
+          && data.assignee in ['General', 'Mauricio', 'Silvia', 'Alexis']
+          && data.status in ['pending', 'completed']
+          && (data.get('description', '') is string && data.get('description', '').size() < 1000);
+    }
+
+    function isValidNote(data) {
+      return data.content is string && data.content.size() < 10000;
     }
 
     function isValidSale(data) {
@@ -117,6 +130,19 @@ service cloud.firestore {
     match /settings/{id} {
       allow read: if isAuthorized();
       allow write: if isAdmin();
+    }
+
+    // Shared Notepad
+    match /settings/notes {
+      allow read: if isAuthorized();
+      allow write: if isAuthorized() && isValidNote(incoming());
+    }
+
+    // Tasks
+    match /tasks/{id} {
+      allow read: if isAuthorized();
+      allow write: if isAuthorized() && isValidTask(incoming());
+      allow delete: if isAuthorized();
     }
   }
 }
